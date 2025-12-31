@@ -158,14 +158,11 @@ class Boss:
         # Draw boss
         surface.blit(rotated, rect)
 
-        # Flash effect when hit (draw red overlay)
+        # Flash effect when hit (simple red ring)
         if self.hit_flash > 0:
-            # Draw a semi-transparent red circle overlay
-            flash_alpha = min(150, self.hit_flash * 15)
-            flash_surf = pygame.Surface((self.size + 20, self.size + 20), pygame.SRCALPHA)
-            pygame.draw.circle(flash_surf, (255, 0, 0, flash_alpha),
-                             (self.size // 2 + 10, self.size // 2 + 10), self.size // 2 + 5)
-            surface.blit(flash_surf, (self.x - self.size // 2 - 10, self.y - self.size // 2 - 10))
+            # Draw red rings around boss when hit
+            pygame.draw.circle(surface, RED, (int(self.x), int(self.y)), self.size // 2 + 10, 4)
+            pygame.draw.circle(surface, ORANGE, (int(self.x), int(self.y)), self.size // 2 + 5, 3)
 
         # Draw health bar
         bar_width = 200
