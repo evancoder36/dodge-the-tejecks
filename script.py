@@ -73,6 +73,9 @@ sound_collect = generate_sound(880, 100, 0.2)
 sound_powerup = generate_sound(1200, 150, 0.3)
 sound_hit = generate_sound(200, 300, 0.4)
 sound_dodge = generate_sound(600, 50, 0.1)
+sound_laser = generate_sound(1500, 80, 0.25)
+sound_explosion = generate_sound(150, 400, 0.5)
+sound_bomb = generate_sound(100, 500, 0.4)
 
 def play_sound(sound):
     """Play a sound if available."""
@@ -114,6 +117,66 @@ class Particle:
     def is_dead(self):
         return self.lifetime <= 0
 
+# Laser class for shooting
+class Laser:
+    def __init__(self, x, y, color=RED, speed=15, width=4, double=False):
+        self.x = x
+        self.y = y
+        self.color = color
+        self.speed = speed
+        self.width = width
+        self.height = 20
+        self.double = double
+        self.active = True
+
+    def update(self):
+        self.y -= self.speed
+
+    def draw(self, surface):
+        # Main laser beam
+        pygame.draw.rect(surface, self.color, (self.x - self.width // 2, self.y, self.width, self.height))
+        # Glow effect
+        pygame.draw.rect(surface, WHITE, (self.x - self.width // 4, self.y + 2, self.width // 2, self.height - 4))
+        # Trail effect
+        for i in range(3):
+            alpha_color = (self.color[0], self.color[1], self.color[2])
+            trail_y = self.y + self.height + i * 8
+            trail_width = self.width - i
+            if trail_width > 0:
+                pygame.draw.rect(surface, alpha_color, (self.x - trail_width // 2, trail_y, trail_width, 6))
+
+    def get_rect(self):
+        return pygame.Rect(self.x - self.width // 2, self.y, self.width, self.height)
+
+    def is_off_screen(self):
+        return self.y < -self.height
+
+# Explosion class for bomb effect
+class Explosion:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+        self.radius = 10
+        self.max_radius = 80
+        self.growth_speed = 8
+        self.active = True
+        self.alpha = 255
+
+    def update(self):
+        self.radius += self.growth_speed
+        self.alpha = max(0, 255 - (self.radius / self.max_radius) * 255)
+        if self.radius >= self.max_radius:
+            self.active = False
+
+    def draw(self, surface):
+        if self.active:
+            # Outer ring
+            pygame.draw.circle(surface, ORANGE, (int(self.x), int(self.y)), int(self.radius), 4)
+            # Inner ring
+            pygame.draw.circle(surface, YELLOW, (int(self.x), int(self.y)), int(self.radius * 0.7), 3)
+            # Core
+            pygame.draw.circle(surface, WHITE, (int(self.x), int(self.y)), int(self.radius * 0.3))
+
 # Power-up class
 class PowerUp:
     TYPES = {
@@ -122,6 +185,10 @@ class PowerUp:
         'speed': {'color': GREEN, 'symbol': '>', 'duration': 300},
         'slowmo': {'color': PURPLE, 'symbol': '~', 'duration': 200},
         'magnet': {'color': ORANGE, 'symbol': 'M', 'duration': 250},
+        'bomb': {'color': RED, 'symbol': 'B', 'duration': 0},
+        'rapid': {'color': (255, 100, 100), 'symbol': 'R', 'duration': 300},
+        'double': {'color': (100, 100, 255), 'symbol': 'D', 'duration': 400},
+        'ammo': {'color': (200, 200, 200), 'symbol': 'A', 'duration': 0},
     }
 
     def __init__(self, x, y, power_type):
@@ -313,17 +380,20 @@ async def instructions_screen():
         draw_text_centered("Instructions", BIG_FONT, BLACK, 50)
 
         instructions = [
-            "1. Move with LEFT and RIGHT arrows.",
-            "2. Avoid the falling diamonds.",
-            "3. Earn points by dodging diamonds.",
-            "4. Collect power-ups for bonuses!",
+            "CONTROLS:",
+            "LEFT/RIGHT - Move player",
+            "SPACE - Shoot lasers",
             "",
             "POWER-UPS:",
             "$ Coin - Bonus points",
-            "S Shield - Temporary invincibility",
+            "S Shield - Block one hit",
             "> Speed - Move faster",
-            "~ Slow-Mo - Slows enemies",
-            "M Magnet - Attracts coins",
+            "~ Slow-Mo - Slow enemies",
+            "M Magnet - Attract coins",
+            "B Bomb - Clear all enemies!",
+            "R Rapid - Fast shooting",
+            "D Double - Dual lasers",
+            "A Ammo - +10 laser ammo",
         ]
 
         for i, line in enumerate(instructions):
@@ -348,6 +418,13 @@ async def instructions_screen():
 async def changelog_screen():
     """Display the changelog screen."""
     updates = [
+        "Version 1.3:",
+        "- SHOOT LASERS with SPACE bar!",
+        "- Destroy enemies to earn bonus points!",
+        "- New power-ups: Bomb, Rapid Fire, Double Shot!",
+        "- Ammo system - collect ammo pickups!",
+        "- Explosive visual effects!",
+        "",
         "Version 1.2:",
         "- Added power-ups: Shield, Speed, Slow-Mo, Magnet!",
         "- Added coins to collect for bonus points!",
@@ -538,7 +615,7 @@ async def shop():
         clock.tick(60)
 
 async def game_loop(difficulty):
-    """Main game loop with power-ups and effects."""
+    """Main game loop with power-ups, lasers, and effects."""
     global points, high_score, screen_shake, shake_intensity
 
     game_points = 0
@@ -550,12 +627,23 @@ async def game_loop(difficulty):
     diamonds = []
     power_ups = []
     particles = []
+    lasers = []
+    explosions = []
 
     # Power-up states
     shield_active = 0
     speed_boost_active = 0
     slowmo_active = 0
     magnet_active = 0
+    rapid_fire_active = 0
+    double_shot_active = 0
+
+    # Laser/shooting system
+    laser_cooldown = 0
+    base_cooldown = 15  # Frames between shots
+    laser_ammo = 10  # Starting ammo
+    max_ammo = 30
+    enemies_destroyed = 0
 
     # Combo system
     combo = 0
@@ -590,6 +678,12 @@ async def game_loop(difficulty):
             current_diamond_speed = diamond_speed
         if magnet_active > 0:
             magnet_active -= 1
+        if rapid_fire_active > 0:
+            rapid_fire_active -= 1
+        if double_shot_active > 0:
+            double_shot_active -= 1
+        if laser_cooldown > 0:
+            laser_cooldown -= 1
 
         # Combo timer
         if combo_timer > 0:
@@ -643,11 +737,44 @@ async def game_loop(difficulty):
             diamond_x = random.randint(50, SCREEN_WIDTH - 50)
             diamonds.append([diamond_x, -20])
 
+        # Update and draw lasers
+        for laser in lasers[:]:
+            laser.update()
+            if laser.is_off_screen():
+                lasers.remove(laser)
+                continue
+            laser.draw(screen)
+
+            # Check laser collision with diamonds
+            laser_rect = laser.get_rect()
+            for diamond in diamonds[:]:
+                diamond_rect = pygame.Rect(diamond[0] - 15, diamond[1] - 15, 30, 30)
+                if laser_rect.colliderect(diamond_rect):
+                    # Destroy diamond
+                    diamonds.remove(diamond)
+                    if laser in lasers:
+                        lasers.remove(laser)
+                    enemies_destroyed += 1
+                    game_points += 3 + combo
+                    play_sound(sound_explosion)
+                    trigger_screen_shake(3, 3)
+                    # Explosion particles
+                    for _ in range(15):
+                        particles.append(Particle(diamond[0], diamond[1], ORANGE))
+                    break
+
+        # Update and draw explosions
+        for explosion in explosions[:]:
+            explosion.update()
+            explosion.draw(screen)
+            if not explosion.active:
+                explosions.remove(explosion)
+
         # Spawn power-ups occasionally
-        if random.random() < 0.008:
+        if random.random() < 0.01:
             power_type = random.choices(
-                ['coin', 'shield', 'speed', 'slowmo', 'magnet'],
-                weights=[50, 15, 15, 10, 10]
+                ['coin', 'shield', 'speed', 'slowmo', 'magnet', 'bomb', 'rapid', 'double', 'ammo'],
+                weights=[40, 12, 12, 8, 8, 5, 5, 5, 5]
             )[0]
             power_x = random.randint(50, SCREEN_WIDTH - 50)
             power_ups.append(PowerUp(power_x, -30, power_type))
@@ -697,6 +824,31 @@ async def game_loop(difficulty):
                     magnet_active = PowerUp.TYPES['magnet']['duration']
                     for _ in range(15):
                         particles.append(Particle(power.x, power.y, ORANGE))
+                elif power.type == 'bomb':
+                    # Clear all diamonds on screen!
+                    play_sound(sound_bomb)
+                    trigger_screen_shake(20, 15)
+                    for diamond in diamonds:
+                        explosions.append(Explosion(diamond[0], diamond[1]))
+                        game_points += 2
+                        for _ in range(8):
+                            particles.append(Particle(diamond[0], diamond[1], RED))
+                    enemies_destroyed += len(diamonds)
+                    diamonds.clear()
+                    for _ in range(20):
+                        particles.append(Particle(power.x, power.y, RED))
+                elif power.type == 'rapid':
+                    rapid_fire_active = PowerUp.TYPES['rapid']['duration']
+                    for _ in range(15):
+                        particles.append(Particle(power.x, power.y, (255, 100, 100)))
+                elif power.type == 'double':
+                    double_shot_active = PowerUp.TYPES['double']['duration']
+                    for _ in range(15):
+                        particles.append(Particle(power.x, power.y, (100, 100, 255)))
+                elif power.type == 'ammo':
+                    laser_ammo = min(max_ammo, laser_ammo + 10)
+                    for _ in range(10):
+                        particles.append(Particle(power.x, power.y, WHITE))
 
                 power_ups.remove(power)
 
@@ -738,12 +890,19 @@ async def game_loop(difficulty):
 
         # Draw UI
         # Score panel
-        pygame.draw.rect(screen, (0, 0, 0, 100), (5, 5, 200, 90), border_radius=10)
-        pygame.draw.rect(screen, WHITE, (5, 5, 200, 90), 2, border_radius=10)
+        pygame.draw.rect(screen, (0, 0, 0, 100), (5, 5, 200, 115), border_radius=10)
+        pygame.draw.rect(screen, WHITE, (5, 5, 200, 115), 2, border_radius=10)
         draw_text(f"Score: {game_points}", FONT, WHITE, 15, 15)
         draw_text(f"Total: {points}", SMALL_FONT, (200, 200, 200), 15, 45)
         if combo > 0:
             draw_text(f"Combo: x{combo + 1}", SMALL_FONT, YELLOW, 15, 70)
+
+        # Ammo display
+        ammo_color = RED if laser_ammo <= 3 else (WHITE if laser_ammo < 10 else GREEN)
+        draw_text(f"Ammo: {laser_ammo}/{max_ammo}", SMALL_FONT, ammo_color, 15, 95)
+
+        # Destroyed counter
+        draw_text(f"Destroyed: {enemies_destroyed}", SMALL_FONT, ORANGE, SCREEN_WIDTH - 150, SCREEN_HEIGHT - 30)
 
         # Power-up status indicators
         status_x = SCREEN_WIDTH - 120
@@ -763,6 +922,17 @@ async def game_loop(difficulty):
         if magnet_active > 0:
             pygame.draw.rect(screen, ORANGE, (status_x, status_y, 110, 25), border_radius=5)
             draw_text(f"Magnet: {magnet_active // 60 + 1}s", SMALL_FONT, BLACK, status_x + 5, status_y + 3)
+            status_y += 30
+        if rapid_fire_active > 0:
+            pygame.draw.rect(screen, (255, 100, 100), (status_x, status_y, 110, 25), border_radius=5)
+            draw_text(f"Rapid: {rapid_fire_active // 60 + 1}s", SMALL_FONT, WHITE, status_x + 5, status_y + 3)
+            status_y += 30
+        if double_shot_active > 0:
+            pygame.draw.rect(screen, (100, 100, 255), (status_x, status_y, 110, 25), border_radius=5)
+            draw_text(f"Double: {double_shot_active // 60 + 1}s", SMALL_FONT, WHITE, status_x + 5, status_y + 3)
+
+        # Controls hint
+        draw_text("SPACE: Shoot | Arrows: Move", SMALL_FONT, (150, 150, 150), 10, SCREEN_HEIGHT - 25)
 
         pygame.display.flip()
 
@@ -777,12 +947,37 @@ async def game_loop(difficulty):
                     # Pause functionality could go here
                     pass
 
-        # Handle player movement
+        # Handle player movement and shooting
         keys = pygame.key.get_pressed()
         if keys[pygame.K_LEFT] and player_x > 0:
             player_x -= player_speed
         if keys[pygame.K_RIGHT] and player_x < SCREEN_WIDTH - 50:
             player_x += player_speed
+
+        # Shooting lasers with SPACE
+        if keys[pygame.K_SPACE] and laser_cooldown <= 0 and laser_ammo > 0:
+            play_sound(sound_laser)
+            laser_ammo -= 1
+
+            # Determine cooldown based on rapid fire
+            if rapid_fire_active > 0:
+                laser_cooldown = base_cooldown // 3
+            else:
+                laser_cooldown = base_cooldown
+
+            # Create laser(s)
+            laser_x = player_x + 25
+            laser_y = player_y - 10
+
+            if double_shot_active > 0:
+                # Double shot - two lasers side by side
+                lasers.append(Laser(laser_x - 15, laser_y, (255, 100, 100)))
+                lasers.append(Laser(laser_x + 15, laser_y, (255, 100, 100)))
+                # Double shot uses extra ammo
+                if laser_ammo > 0:
+                    laser_ammo -= 1
+            else:
+                lasers.append(Laser(laser_x, laser_y, RED))
 
         clock.tick(60)
         await asyncio.sleep(0)
