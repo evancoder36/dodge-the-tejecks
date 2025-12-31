@@ -401,23 +401,27 @@ class PowerUp:
         self.y += speed * 0.5
         self.bob_offset += 0.1
 
-    def draw(self, surface):
+    def draw(self, surface, shake_x=0, shake_y=0):
         # Bobbing animation
         bob = math.sin(self.bob_offset) * 5
-        draw_y = self.y + bob
+        draw_y = self.y + bob + shake_y
+        draw_x = self.x + shake_x
 
         info = self.TYPES[self.type]
         # Outer glow
-        pygame.draw.circle(surface, info['color'], (int(self.x), int(draw_y)), self.size + 5, 2)
+        pygame.draw.circle(surface, info['color'], (int(draw_x), int(draw_y)), self.size + 5, 2)
         # Inner circle
-        pygame.draw.circle(surface, info['color'], (int(self.x), int(draw_y)), self.size)
+        pygame.draw.circle(surface, info['color'], (int(draw_x), int(draw_y)), self.size)
         # Symbol
         text = SMALL_FONT.render(info['symbol'], True, BLACK)
-        text_rect = text.get_rect(center=(self.x, draw_y))
+        text_rect = text.get_rect(center=(draw_x, draw_y))
         surface.blit(text, text_rect)
 
     def get_rect(self):
         return pygame.Rect(self.x - self.size, self.y - self.size, self.size * 2, self.size * 2)
+
+    def is_off_screen(self):
+        return self.y > SCREEN_HEIGHT + self.size
 
 # Screen shake variables
 screen_shake = 0
@@ -1409,8 +1413,10 @@ async def boss_game_loop():
                         particles.append(Particle(laser.x, laser.y, ORANGE))
                 continue
 
-            # Check laser collision with enemies
+            # Check laser collision with enemies (skip PowerUps)
             for enemy in enemies[:]:
+                if isinstance(enemy, PowerUp):
+                    continue  # Lasers pass through power-ups
                 if laser.get_rect().colliderect(enemy.get_rect()):
                     enemies.remove(enemy)
                     if laser in lasers:
@@ -1421,11 +1427,28 @@ async def boss_game_loop():
                         particles.append(Particle(enemy.x, enemy.y, ORANGE))
                     break
 
-        # Check player collision with enemies
+        # Check player collision with enemies and power-ups
         player_rect = pygame.Rect(player_x + 5, player_y + 5, 40, 40)
         for enemy in enemies[:]:
             if player_rect.colliderect(enemy.get_rect()):
-                if shield_active > 0:
+                # Check if it's a power-up
+                if isinstance(enemy, PowerUp):
+                    enemies.remove(enemy)
+                    play_sound(sound_coin)
+                    # Apply power-up effect
+                    if enemy.type == 'shield':
+                        shield_active = 300
+                    elif enemy.type == 'speed':
+                        speed_boost_active = 300
+                    elif enemy.type == 'rapid':
+                        rapid_fire_active = 300
+                    elif enemy.type == 'double':
+                        double_shot_active = 400
+                    elif enemy.type == 'ammo':
+                        laser_ammo = min(max_ammo, laser_ammo + 10)
+                    for _ in range(10):
+                        particles.append(Particle(enemy.x, enemy.y, CYAN))
+                elif shield_active > 0:
                     shield_active = 0
                     enemies.remove(enemy)
                     trigger_screen_shake(5, 5)
