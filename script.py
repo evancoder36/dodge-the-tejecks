@@ -3,47 +3,213 @@ import random
 import sys
 import json
 import asyncio
+import math
 
 # Initialize Pygame
 pygame.init()
+pygame.mixer.init()
 
 # Screen dimensions for phone size
 SCREEN_WIDTH = 798
 SCREEN_HEIGHT = 640
 
+# Colors
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+RED = (255, 0, 0)
+GREEN = (0, 255, 0)
+BLUE = (0, 100, 255)
+YELLOW = (255, 255, 0)
+PURPLE = (150, 0, 255)
+CYAN = (0, 255, 255)
+ORANGE = (255, 165, 0)
+
 # Fonts
 FONT = pygame.font.Font(None, 30)
 BIG_FONT = pygame.font.Font(None, 50)
+SMALL_FONT = pygame.font.Font(None, 24)
 
 # Initialize screen
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-pygame.display.set_caption("Dodge the Diamonds")
+pygame.display.set_caption("Dodge the Tejecks")
 
 # Game variables
-points = 0  # Initialize points to 0
+points = 0
+high_score = 0
 shop_items = {
-    "EMDRTejeck": {"cost": 0, "image": pygame.image.load("babytejeck.jpeg"), "purchased": True},  # Tejeck is free
+    "EMDRTejeck": {"cost": 0, "image": pygame.image.load("babytejeck.jpeg"), "purchased": True},
     "BabyTejeck": {"cost": 0, "image": pygame.image.load("babytejeck.jpeg"), "purchased": False},
     "Amelia": {"cost": 0, "image": pygame.image.load("amelia.jpeg"), "purchased": False},
     "Evan": {"cost": 0, "image": pygame.image.load("me.jpeg"), "purchased": False},
     "Mei": {"cost": 0, "image": pygame.image.load("babes.jpeg"), "purchased": False},
     "Alv": {"cost": 0, "image": pygame.image.load("alvin.jpeg"), "purchased": False},
 }
-equipped_item = "EMDRTejeck"  # Default equipped
-selected_item = 0  # Track selected item in the shop
+equipped_item = "EMDRTejeck"
+selected_item = 0
 
 # Load diamond image
 diamond_image = pygame.image.load("adeline.jpeg")
-diamond_image = pygame.transform.scale(diamond_image, (40, 40))  # Scale the diamond image
+diamond_image = pygame.transform.scale(diamond_image, (40, 40))
 
 # Clock for controlling FPS
 clock = pygame.time.Clock()
 
-# Load saved game progress (points and purchased items)
-# Save game progress (total points and purchased items)
+# Sound generation functions (works with Pygbag)
+def generate_sound(frequency, duration_ms, volume=0.3):
+    """Generate a simple beep sound."""
+    try:
+        sample_rate = 22050
+        n_samples = int(sample_rate * duration_ms / 1000)
+        buf = bytes([int(128 + 127 * volume * math.sin(2 * math.pi * frequency * t / sample_rate))
+                     for t in range(n_samples)])
+        sound = pygame.mixer.Sound(buffer=buf)
+        sound.set_volume(volume)
+        return sound
+    except:
+        return None
+
+# Generate sounds
+sound_collect = generate_sound(880, 100, 0.2)
+sound_powerup = generate_sound(1200, 150, 0.3)
+sound_hit = generate_sound(200, 300, 0.4)
+sound_dodge = generate_sound(600, 50, 0.1)
+
+def play_sound(sound):
+    """Play a sound if available."""
+    try:
+        if sound:
+            sound.play()
+    except:
+        pass
+
+# Particle class for visual effects
+class Particle:
+    def __init__(self, x, y, color, velocity=None, lifetime=30):
+        self.x = x
+        self.y = y
+        self.color = color
+        self.lifetime = lifetime
+        self.max_lifetime = lifetime
+        if velocity:
+            self.vx, self.vy = velocity
+        else:
+            angle = random.uniform(0, 2 * math.pi)
+            speed = random.uniform(2, 6)
+            self.vx = math.cos(angle) * speed
+            self.vy = math.sin(angle) * speed
+        self.size = random.randint(3, 8)
+
+    def update(self):
+        self.x += self.vx
+        self.y += self.vy
+        self.vy += 0.2  # Gravity
+        self.lifetime -= 1
+        self.size = max(1, int(self.size * 0.95))
+
+    def draw(self, surface):
+        alpha = int(255 * (self.lifetime / self.max_lifetime))
+        color = (*self.color[:3], alpha) if len(self.color) == 4 else self.color
+        pygame.draw.circle(surface, self.color, (int(self.x), int(self.y)), self.size)
+
+    def is_dead(self):
+        return self.lifetime <= 0
+
+# Power-up class
+class PowerUp:
+    TYPES = {
+        'coin': {'color': YELLOW, 'symbol': '$', 'duration': 0},
+        'shield': {'color': CYAN, 'symbol': 'S', 'duration': 300},
+        'speed': {'color': GREEN, 'symbol': '>', 'duration': 300},
+        'slowmo': {'color': PURPLE, 'symbol': '~', 'duration': 200},
+        'magnet': {'color': ORANGE, 'symbol': 'M', 'duration': 250},
+    }
+
+    def __init__(self, x, y, power_type):
+        self.x = x
+        self.y = y
+        self.type = power_type
+        self.size = 25
+        self.bob_offset = random.uniform(0, 2 * math.pi)
+        self.collected = False
+
+    def update(self, speed):
+        self.y += speed * 0.5
+        self.bob_offset += 0.1
+
+    def draw(self, surface):
+        # Bobbing animation
+        bob = math.sin(self.bob_offset) * 5
+        draw_y = self.y + bob
+
+        info = self.TYPES[self.type]
+        # Outer glow
+        pygame.draw.circle(surface, info['color'], (int(self.x), int(draw_y)), self.size + 5, 2)
+        # Inner circle
+        pygame.draw.circle(surface, info['color'], (int(self.x), int(draw_y)), self.size)
+        # Symbol
+        text = SMALL_FONT.render(info['symbol'], True, BLACK)
+        text_rect = text.get_rect(center=(self.x, draw_y))
+        surface.blit(text, text_rect)
+
+    def get_rect(self):
+        return pygame.Rect(self.x - self.size, self.y - self.size, self.size * 2, self.size * 2)
+
+# Screen shake variables
+screen_shake = 0
+shake_intensity = 0
+
+def apply_screen_shake():
+    global screen_shake, shake_intensity
+    if screen_shake > 0:
+        screen_shake -= 1
+        shake_intensity *= 0.9
+        return random.randint(-int(shake_intensity), int(shake_intensity)), random.randint(-int(shake_intensity), int(shake_intensity))
+    return 0, 0
+
+def trigger_screen_shake(intensity=10, duration=10):
+    global screen_shake, shake_intensity
+    screen_shake = duration
+    shake_intensity = intensity
+
+# Background animation
+bg_particles = []
+def update_background():
+    global bg_particles
+    # Add new background particles occasionally
+    if random.random() < 0.1:
+        bg_particles.append({
+            'x': random.randint(0, SCREEN_WIDTH),
+            'y': SCREEN_HEIGHT + 10,
+            'speed': random.uniform(0.5, 2),
+            'size': random.randint(2, 5),
+            'alpha': random.randint(50, 150)
+        })
+
+    # Update particles
+    for p in bg_particles[:]:
+        p['y'] -= p['speed']
+        if p['y'] < -10:
+            bg_particles.remove(p)
+
+def draw_background(surface, game_active=False):
+    # Gradient background
+    for y in range(0, SCREEN_HEIGHT, 4):
+        ratio = y / SCREEN_HEIGHT
+        if game_active:
+            color = (int(240 - 40 * ratio), int(248 - 40 * ratio), 255)
+        else:
+            color = (int(250 - 20 * ratio), int(250 - 20 * ratio), 255)
+        pygame.draw.rect(surface, color, (0, y, SCREEN_WIDTH, 4))
+
+    # Draw floating particles
+    for p in bg_particles:
+        pygame.draw.circle(surface, (200, 200, 255), (int(p['x']), int(p['y'])), p['size'])
+
 def save_progress():
+    global high_score
     progress = {
-        "points": points,  # Save total points
+        "points": points,
+        "high_score": high_score,
         "purchased_items": {item: data["purchased"] for item, data in shop_items.items()}
     }
     try:
@@ -52,60 +218,82 @@ def save_progress():
     except IOError as e:
         print(f"Failed to save progress: {e}")
 
-# Load saved game progress (total points and purchased items)
 def load_progress():
-    global points
+    global points, high_score
     try:
         with open("save_progress.json", "r") as file:
             progress = json.load(file)
-            points = progress.get("points", 0)  # Load total points
+            points = progress.get("points", 0)
+            high_score = progress.get("high_score", 0)
             for item in shop_items:
                 shop_items[item]["purchased"] = progress["purchased_items"].get(item, False)
     except (FileNotFoundError, json.JSONDecodeError):
-        # Default progress if save file doesn't exist or is invalid
         points = 0
+        high_score = 0
         for item in shop_items:
             shop_items[item]["purchased"] = False
 
-
-# Draw text on the screen
 def draw_text(text, font, color, x, y):
     render = font.render(text, True, color)
     screen.blit(render, (x, y))
 
-# Scale position based on screen resolution
+def draw_text_centered(text, font, color, y):
+    render = font.render(text, True, color)
+    x = (SCREEN_WIDTH - render.get_width()) // 2
+    screen.blit(render, (x, y))
+
 def scale_position(x, y):
     return x * SCREEN_WIDTH // 360, y * SCREEN_HEIGHT // 640
 
-# Scale size based on screen resolution
 def scale_size(width, height):
     return width * SCREEN_WIDTH // 360, height * SCREEN_HEIGHT // 640
 
+# Menu button animation
+menu_hover = -1
+menu_animation = [0, 0, 0, 0, 0]
+
 async def main_menu():
     """Display the main menu."""
+    global menu_animation
+    title_offset = 0
+
     while True:
-        screen.fill((255, 255, 255))  # White background
-        draw_text("Dodge the Tejecks", BIG_FONT, (0, 0, 0), *scale_position(60, 50))  # Black text
-        draw_text("1. PLAY", FONT, (0, 0, 0), *scale_position(50, 200))
-        draw_text("2. SHOP", FONT, (0, 0, 0), *scale_position(50, 250))
-        draw_text("3. QUIT", FONT, (0, 0, 0), *scale_position(50, 300))
-        draw_text("4. INSTRUCTIONS", FONT, (0, 0, 0), *scale_position(50, 350))
-        draw_text("5. CHANGELOG", FONT, (0, 0, 0), *scale_position(50, 400))
+        update_background()
+        draw_background(screen, False)
+
+        # Animated title
+        title_offset += 0.05
+        title_y = 50 + math.sin(title_offset) * 5
+        draw_text("Dodge the Tejecks", BIG_FONT, BLACK, *scale_position(60, title_y))
+
+        # Menu items with hover effect
+        menu_items = ["1. PLAY", "2. SHOP", "3. QUIT", "4. INSTRUCTIONS", "5. CHANGELOG"]
+        for i, item in enumerate(menu_items):
+            y_pos = 200 + i * 50
+            # Animate menu items
+            menu_animation[i] = min(1, menu_animation[i] + 0.1)
+            offset = (1 - menu_animation[i]) * 50
+            color = BLUE if i == menu_hover else BLACK
+            draw_text(item, FONT, color, scale_position(50, y_pos)[0] + offset, scale_position(50, y_pos)[1])
+
+        # High score display
+        draw_text(f"High Score: {high_score}", SMALL_FONT, PURPLE, 10, SCREEN_HEIGHT - 30)
 
         pygame.display.flip()
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                save_progress()  # Save progress on exit
+                save_progress()
                 pygame.quit()
                 sys.exit()
             elif event.type == pygame.KEYDOWN:
+                play_sound(sound_collect)
                 if event.key == pygame.K_1:
                     await choose_difficulty()
                 elif event.key == pygame.K_2:
                     await shop()
                 elif event.key == pygame.K_3:
-                    save_progress()  # Save progress before quitting
+                    save_progress()
                     pygame.quit()
                     sys.exit()
                 elif event.key == pygame.K_4:
@@ -114,21 +302,35 @@ async def main_menu():
                     await changelog_screen()
 
         await asyncio.sleep(0)
-
-
+        clock.tick(60)
 
 async def instructions_screen():
     """Display the instructions screen."""
     while True:
-        screen.fill((255, 255, 255))  # White background
-        draw_text("Instructions", BIG_FONT, (0, 0, 0), *scale_position(100, 50))  # Black text
-        draw_text("1. Move with LEFT and RIGHT arrows.", FONT, (0, 0, 0), *scale_position(20, 150))
-        draw_text("2. Avoid the falling diamonds.", FONT, (0, 0, 0), *scale_position(20, 200))
-        draw_text("3. Earn points by dodging diamonds.", FONT, (0, 0, 0), *scale_position(20, 250))
-        draw_text("4. Use points to buy new colors in the shop.", FONT, (0, 0, 0), *scale_position(20, 300))
-        draw_text("5. Press UP/DOWN in the shop to select items.", FONT, (0, 0, 0), *scale_position(20, 350))
-        draw_text("Press B to return to the Main Menu", FONT, (0, 0, 0), *scale_position(60, SCREEN_HEIGHT - 100))
+        update_background()
+        draw_background(screen, False)
 
+        draw_text_centered("Instructions", BIG_FONT, BLACK, 50)
+
+        instructions = [
+            "1. Move with LEFT and RIGHT arrows.",
+            "2. Avoid the falling diamonds.",
+            "3. Earn points by dodging diamonds.",
+            "4. Collect power-ups for bonuses!",
+            "",
+            "POWER-UPS:",
+            "$ Coin - Bonus points",
+            "S Shield - Temporary invincibility",
+            "> Speed - Move faster",
+            "~ Slow-Mo - Slows enemies",
+            "M Magnet - Attracts coins",
+        ]
+
+        for i, line in enumerate(instructions):
+            color = BLUE if line.startswith("POWER") else BLACK
+            draw_text(line, SMALL_FONT, color, 50, 120 + i * 35)
+
+        draw_text_centered("Press B to return", FONT, BLACK, SCREEN_HEIGHT - 80)
         pygame.display.flip()
 
         for event in pygame.event.get():
@@ -137,37 +339,48 @@ async def instructions_screen():
                 sys.exit()
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_b:
+                    play_sound(sound_collect)
                     return
 
         await asyncio.sleep(0)
+        clock.tick(60)
 
 async def changelog_screen():
     """Display the changelog screen."""
     updates = [
-        "Version 1.0:",
-        "- Added Main Menu with play, shop, and quit options.",
-        "- Implemented difficulty levels: Easy, Medium, Hard.",
-        "- Introduced diamonds for dodging and scoring.",
+        "Version 1.2:",
+        "- Added power-ups: Shield, Speed, Slow-Mo, Magnet!",
+        "- Added coins to collect for bonus points!",
+        "- Added sound effects!",
+        "- Added visual effects and particles!",
+        "- Added screen shake on collision!",
+        "- Added animated background!",
+        "- Added high score tracking!",
         "",
         "Version 1.1:",
         "- More Items in Shop.",
         "- New Difficulty Levels added",
         "- Implemented saving purchased items.",
-        "- Added equipped status for purchased items.",
-        "- Bugs fixed. ",
-        "- Tejeck Characters added",
         "",
+        "Version 1.0:",
+        "- Initial release with main gameplay.",
     ]
 
-    while True:
-        screen.fill((255, 255, 255))  # White background
-        draw_text("Changelog", BIG_FONT, (0, 0, 0), *scale_position(100, 50))  # Black text
-        y_offset = 150
-        for line in updates:
-            draw_text(line, FONT, (0, 0, 0), *scale_position(20, y_offset))
-            y_offset += 30  # Spacing between lines
+    scroll_offset = 0
 
-        draw_text("Press B to return to the Main Menu", FONT, (0, 0, 0), *scale_position(60, SCREEN_HEIGHT - 100))
+    while True:
+        update_background()
+        draw_background(screen, False)
+
+        draw_text_centered("Changelog", BIG_FONT, BLACK, 50)
+
+        for i, line in enumerate(updates):
+            y_pos = 120 + i * 30 - scroll_offset
+            if 100 < y_pos < SCREEN_HEIGHT - 100:
+                color = BLUE if line.startswith("Version") else BLACK
+                draw_text(line, SMALL_FONT, color, 30, y_pos)
+
+        draw_text_centered("UP/DOWN to scroll, B to return", FONT, BLACK, SCREEN_HEIGHT - 50)
         pygame.display.flip()
 
         for event in pygame.event.get():
@@ -176,22 +389,46 @@ async def changelog_screen():
                 sys.exit()
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_b:
+                    play_sound(sound_collect)
                     return
+                elif event.key == pygame.K_UP:
+                    scroll_offset = max(0, scroll_offset - 30)
+                elif event.key == pygame.K_DOWN:
+                    scroll_offset = min(len(updates) * 30 - 200, scroll_offset + 30)
 
         await asyncio.sleep(0)
+        clock.tick(60)
 
 async def choose_difficulty():
     """Choose difficulty screen."""
-    while True:
-        screen.fill((255, 255, 255))  # White background
-        draw_text("Choose Difficulty", BIG_FONT, (0, 0, 0), *scale_position(80, 50))  # Black text
-        draw_text("1. Easy", FONT, (0, 0, 0), *scale_position(50, 200))
-        draw_text("2. Medium", FONT, (0, 0, 0), *scale_position(50, 250))
-        draw_text("3. Hard", FONT, (0, 0, 0), *scale_position(50, 300))
-        draw_text("4. Impossible", FONT, (0, 0, 0), *scale_position(50, 350))
-        draw_text("5. God Mode", FONT, (0, 0, 0), *scale_position(50, 400))
-        draw_text("6. Creator Mode", FONT, (0, 0, 0), *scale_position(50, 450))
+    selected = 0
+    difficulties = [
+        ("Easy", 5, GREEN),
+        ("Medium", 10, YELLOW),
+        ("Hard", 15, ORANGE),
+        ("Impossible", 30, RED),
+        ("God Mode", 100, PURPLE),
+        ("Creator Mode", 150, BLACK),
+    ]
 
+    while True:
+        update_background()
+        draw_background(screen, False)
+
+        draw_text_centered("Choose Difficulty", BIG_FONT, BLACK, 50)
+
+        for i, (name, speed, color) in enumerate(difficulties):
+            y_pos = 150 + i * 60
+
+            # Highlight selected
+            if i == selected:
+                pygame.draw.rect(screen, (*color, 50), (50, y_pos - 5, SCREEN_WIDTH - 100, 50), border_radius=10)
+                pygame.draw.rect(screen, color, (50, y_pos - 5, SCREEN_WIDTH - 100, 50), 3, border_radius=10)
+
+            draw_text(f"{i+1}. {name}", FONT, color, 80, y_pos + 10)
+            draw_text(f"Speed: {speed}", SMALL_FONT, BLACK, SCREEN_WIDTH - 200, y_pos + 12)
+
+        draw_text_centered("Press number or ENTER, B to go back", SMALL_FONT, BLACK, SCREEN_HEIGHT - 40)
         pygame.display.flip()
 
         for event in pygame.event.get():
@@ -199,34 +436,53 @@ async def choose_difficulty():
                 pygame.quit()
                 sys.exit()
             elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_1:
+                if event.key == pygame.K_UP:
+                    selected = (selected - 1) % len(difficulties)
+                    play_sound(sound_collect)
+                elif event.key == pygame.K_DOWN:
+                    selected = (selected + 1) % len(difficulties)
+                    play_sound(sound_collect)
+                elif event.key == pygame.K_RETURN:
+                    play_sound(sound_powerup)
+                    await game_loop(difficulties[selected][1])
+                elif event.key == pygame.K_1:
+                    play_sound(sound_powerup)
                     await game_loop(5)
                 elif event.key == pygame.K_2:
+                    play_sound(sound_powerup)
                     await game_loop(10)
                 elif event.key == pygame.K_3:
+                    play_sound(sound_powerup)
                     await game_loop(15)
                 elif event.key == pygame.K_4:
+                    play_sound(sound_powerup)
                     await game_loop(30)
                 elif event.key == pygame.K_5:
+                    play_sound(sound_powerup)
                     await game_loop(100)
                 elif event.key == pygame.K_6:
+                    play_sound(sound_powerup)
                     await game_loop(150)
                 elif event.key == pygame.K_b:
+                    play_sound(sound_collect)
                     return
 
         await asyncio.sleep(0)
+        clock.tick(60)
 
 async def shop():
     """Shop screen."""
     global points, equipped_item, selected_item
 
     while True:
-        screen.fill((255, 255, 255))  # White background
-        draw_text("Shop", BIG_FONT, (0, 0, 0), *scale_position(120, 50))  # Black text
-        draw_text(f"Points: {points}", FONT, (0, 0, 0), *scale_position(10, 10))
-        draw_text(f"Equipped: {equipped_item}", FONT, (0, 0, 0), *scale_position(10, 50))
+        update_background()
+        draw_background(screen, False)
 
-        y_offset = 150  # Start the items a bit lower to make space
+        draw_text_centered("Shop", BIG_FONT, BLACK, 30)
+        draw_text(f"Points: {points}", FONT, GREEN, 10, 80)
+        draw_text(f"Equipped: {equipped_item}", FONT, BLUE, 10, 110)
+
+        y_offset = 160
         for idx, (item_name, item_data) in enumerate(shop_items.items()):
             image = item_data["image"]
             purchased = item_data["purchased"]
@@ -235,21 +491,21 @@ async def shop():
 
             # Highlight the selected item
             if idx == selected_item:
-                pygame.draw.rect(screen, (200, 200, 200), (40, y_offset - 10, SCREEN_WIDTH - 80, 40))
+                pygame.draw.rect(screen, (200, 220, 255), (40, y_offset - 10, SCREEN_WIDTH - 80, 55), border_radius=8)
+                pygame.draw.rect(screen, BLUE, (40, y_offset - 10, SCREEN_WIDTH - 80, 55), 2, border_radius=8)
 
             # Display item image
-            scaled_image = pygame.transform.scale(image, (40, 40))
-            screen.blit(scaled_image, (50, y_offset))
+            scaled_image = pygame.transform.scale(image, (45, 45))
+            screen.blit(scaled_image, (55, y_offset))
 
             # Display text
-            draw_text(f"{item_name}: {status}", FONT, (0, 0, 0), *scale_position(100, y_offset + 5))
+            status_color = GREEN if equipped_item == item_name else (BLUE if purchased else BLACK)
+            draw_text(f"{item_name}", FONT, BLACK, 115, y_offset + 5)
+            draw_text(status, SMALL_FONT, status_color, 115, y_offset + 30)
 
-            # Display "Not enough points" message if player can't afford item
-            if not purchased and points < cost:
-                draw_text("Not enough points", FONT, (255, 0, 0), *scale_position(100, y_offset + 35))
+            y_offset += 65
 
-            y_offset += 50  # Space out the items
-
+        draw_text_centered("UP/DOWN to select, ENTER to buy/equip, B to return", SMALL_FONT, BLACK, SCREEN_HEIGHT - 40)
         pygame.display.flip()
 
         for event in pygame.event.get():
@@ -259,73 +515,267 @@ async def shop():
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_UP:
                     selected_item = (selected_item - 1) % len(shop_items)
+                    play_sound(sound_collect)
                 elif event.key == pygame.K_DOWN:
                     selected_item = (selected_item + 1) % len(shop_items)
+                    play_sound(sound_collect)
                 elif event.key == pygame.K_RETURN:
                     selected_item_name = list(shop_items.keys())[selected_item]
                     selected_item_data = shop_items[selected_item_name]
                     if not selected_item_data["purchased"] and points >= selected_item_data["cost"]:
                         points -= selected_item_data["cost"]
                         selected_item_data["purchased"] = True
+                        play_sound(sound_powerup)
                     if selected_item_data["purchased"]:
                         equipped_item = selected_item_name
-                    save_progress()  # Save progress after purchase
+                        play_sound(sound_collect)
+                    save_progress()
                 elif event.key == pygame.K_b:
+                    play_sound(sound_collect)
                     return
 
         await asyncio.sleep(0)
+        clock.tick(60)
 
 async def game_loop(difficulty):
-    """Main game loop."""
-    global points
-    game_points = 0  # Session-specific points
+    """Main game loop with power-ups and effects."""
+    global points, high_score, screen_shake, shake_intensity
+
+    game_points = 0
     player_x = SCREEN_WIDTH // 2 - 25
     player_y = SCREEN_HEIGHT - 100
-    player_speed = 10
+    base_player_speed = 10
+    player_speed = base_player_speed
     diamond_speed = difficulty
     diamonds = []
+    power_ups = []
+    particles = []
+
+    # Power-up states
+    shield_active = 0
+    speed_boost_active = 0
+    slowmo_active = 0
+    magnet_active = 0
+
+    # Combo system
+    combo = 0
+    combo_timer = 0
+
+    # Animation
+    player_bob = 0
+    dodge_streak = 0
 
     while True:
-        screen.fill((255, 255, 255))  # White background
+        # Update background
+        update_background()
 
-        # Load the equipped player's image
+        # Apply screen shake
+        shake_x, shake_y = apply_screen_shake()
+
+        # Create offset surface for shake effect
+        draw_background(screen, True)
+
+        # Update power-up timers
+        if shield_active > 0:
+            shield_active -= 1
+        if speed_boost_active > 0:
+            speed_boost_active -= 1
+            player_speed = base_player_speed * 1.5
+        else:
+            player_speed = base_player_speed
+        if slowmo_active > 0:
+            slowmo_active -= 1
+            current_diamond_speed = diamond_speed * 0.4
+        else:
+            current_diamond_speed = diamond_speed
+        if magnet_active > 0:
+            magnet_active -= 1
+
+        # Combo timer
+        if combo_timer > 0:
+            combo_timer -= 1
+        else:
+            combo = 0
+
+        # Player bobbing animation
+        player_bob += 0.15
+        bob_offset = math.sin(player_bob) * 3
+
+        # Load and draw the equipped player's image
         player_image = shop_items[equipped_item]["image"]
-        player_image = pygame.transform.scale(player_image, (50, 50))  # Scale to fit player size
-        screen.blit(player_image, (player_x, player_y))  # Draw the equipped player image
+        player_image = pygame.transform.scale(player_image, (50, 50))
+        player_draw_x = player_x + shake_x
+        player_draw_y = player_y + bob_offset + shake_y
+        screen.blit(player_image, (player_draw_x, player_draw_y))
 
-        # Update and draw the diamonds
+        # Draw shield effect
+        if shield_active > 0:
+            shield_alpha = 150 + int(50 * math.sin(pygame.time.get_ticks() / 100))
+            pygame.draw.circle(screen, CYAN, (int(player_x + 25), int(player_y + 25 + bob_offset)), 35, 3)
+            if shield_active < 60:  # Flashing when about to expire
+                if shield_active % 10 < 5:
+                    pygame.draw.circle(screen, CYAN, (int(player_x + 25), int(player_y + 25 + bob_offset)), 38, 2)
+
+        # Update and draw diamonds
         for diamond in diamonds[:]:
-            diamond[1] += diamond_speed
+            diamond[1] += current_diamond_speed
             if diamond[1] > SCREEN_HEIGHT:
                 diamonds.remove(diamond)
-                game_points += 1  # Add session-specific points
-            screen.blit(diamond_image, (diamond[0] - 20, diamond[1] - 20))  # Draw diamond
+                game_points += 1 + combo
+                dodge_streak += 1
+                combo = min(combo + 1, 10)
+                combo_timer = 60
 
-        # Spawn new diamonds randomly
-        if random.random() < 0.05:
+                # Play dodge sound occasionally
+                if dodge_streak % 5 == 0:
+                    play_sound(sound_dodge)
+
+                # Spawn particles for successful dodge
+                if dodge_streak % 10 == 0:
+                    for _ in range(5):
+                        particles.append(Particle(player_x + 25, player_y, GREEN))
+
+            screen.blit(diamond_image, (diamond[0] - 20 + shake_x, diamond[1] - 20 + shake_y))
+
+        # Spawn new diamonds
+        spawn_rate = 0.05 + (difficulty / 500)  # Harder difficulties spawn more
+        if random.random() < spawn_rate:
             diamond_x = random.randint(50, SCREEN_WIDTH - 50)
-            diamonds.append([diamond_x, -20])  # Spawn above the screen
+            diamonds.append([diamond_x, -20])
 
-        # Check for collisions
+        # Spawn power-ups occasionally
+        if random.random() < 0.008:
+            power_type = random.choices(
+                ['coin', 'shield', 'speed', 'slowmo', 'magnet'],
+                weights=[50, 15, 15, 10, 10]
+            )[0]
+            power_x = random.randint(50, SCREEN_WIDTH - 50)
+            power_ups.append(PowerUp(power_x, -30, power_type))
+
+        # Update and draw power-ups
+        for power in power_ups[:]:
+            power.update(current_diamond_speed)
+
+            # Magnet effect
+            if magnet_active > 0 and power.type == 'coin':
+                dx = (player_x + 25) - power.x
+                dy = (player_y + 25) - power.y
+                dist = math.sqrt(dx*dx + dy*dy)
+                if dist > 0 and dist < 200:
+                    power.x += dx / dist * 5
+                    power.y += dy / dist * 5
+
+            if power.y > SCREEN_HEIGHT:
+                power_ups.remove(power)
+                continue
+
+            power.draw(screen)
+
+            # Check collision with player
+            player_rect = pygame.Rect(player_x, player_y, 50, 50)
+            if player_rect.colliderect(power.get_rect()):
+                play_sound(sound_powerup)
+
+                # Apply power-up effect
+                if power.type == 'coin':
+                    game_points += 5 * (1 + combo // 2)
+                    for _ in range(10):
+                        particles.append(Particle(power.x, power.y, YELLOW))
+                elif power.type == 'shield':
+                    shield_active = PowerUp.TYPES['shield']['duration']
+                    for _ in range(15):
+                        particles.append(Particle(power.x, power.y, CYAN))
+                elif power.type == 'speed':
+                    speed_boost_active = PowerUp.TYPES['speed']['duration']
+                    for _ in range(15):
+                        particles.append(Particle(power.x, power.y, GREEN))
+                elif power.type == 'slowmo':
+                    slowmo_active = PowerUp.TYPES['slowmo']['duration']
+                    for _ in range(15):
+                        particles.append(Particle(power.x, power.y, PURPLE))
+                elif power.type == 'magnet':
+                    magnet_active = PowerUp.TYPES['magnet']['duration']
+                    for _ in range(15):
+                        particles.append(Particle(power.x, power.y, ORANGE))
+
+                power_ups.remove(power)
+
+        # Check for collisions with diamonds
+        player_rect = pygame.Rect(player_x + 5, player_y + 5, 40, 40)  # Slightly smaller hitbox
         for diamond in diamonds:
-            if player_x < diamond[0] < player_x + 50 and player_y < diamond[1] < player_y + 50:
-                points += game_points  # Add session-specific points to total
-                save_progress()  # Save progress
-                await game_over(game_points)  # Pass session score to game over screen
-                return
+            diamond_rect = pygame.Rect(diamond[0] - 15, diamond[1] - 15, 30, 30)
+            if player_rect.colliderect(diamond_rect):
+                if shield_active > 0:
+                    # Shield blocks the hit
+                    shield_active = 0
+                    diamonds.remove(diamond)
+                    trigger_screen_shake(5, 5)
+                    play_sound(sound_hit)
+                    for _ in range(20):
+                        particles.append(Particle(diamond[0], diamond[1], CYAN))
+                else:
+                    # Game over
+                    play_sound(sound_hit)
+                    trigger_screen_shake(15, 20)
 
-        # Display scores
-        draw_text(f"Points This Game: {game_points}", FONT, (0, 0, 0), *scale_position(10, 10))
-        draw_text(f"Total Points: {points}", FONT, (0, 0, 0), *scale_position(10, 50))
+                    # Explosion particles
+                    for _ in range(30):
+                        particles.append(Particle(player_x + 25, player_y + 25, RED))
+
+                    points += game_points
+                    if game_points > high_score:
+                        high_score = game_points
+                    save_progress()
+                    await game_over(game_points, combo)
+                    return
+
+        # Update and draw particles
+        for particle in particles[:]:
+            particle.update()
+            particle.draw(screen)
+            if particle.is_dead():
+                particles.remove(particle)
+
+        # Draw UI
+        # Score panel
+        pygame.draw.rect(screen, (0, 0, 0, 100), (5, 5, 200, 90), border_radius=10)
+        pygame.draw.rect(screen, WHITE, (5, 5, 200, 90), 2, border_radius=10)
+        draw_text(f"Score: {game_points}", FONT, WHITE, 15, 15)
+        draw_text(f"Total: {points}", SMALL_FONT, (200, 200, 200), 15, 45)
+        if combo > 0:
+            draw_text(f"Combo: x{combo + 1}", SMALL_FONT, YELLOW, 15, 70)
+
+        # Power-up status indicators
+        status_x = SCREEN_WIDTH - 120
+        status_y = 10
+        if shield_active > 0:
+            pygame.draw.rect(screen, CYAN, (status_x, status_y, 110, 25), border_radius=5)
+            draw_text(f"Shield: {shield_active // 60 + 1}s", SMALL_FONT, BLACK, status_x + 5, status_y + 3)
+            status_y += 30
+        if speed_boost_active > 0:
+            pygame.draw.rect(screen, GREEN, (status_x, status_y, 110, 25), border_radius=5)
+            draw_text(f"Speed: {speed_boost_active // 60 + 1}s", SMALL_FONT, BLACK, status_x + 5, status_y + 3)
+            status_y += 30
+        if slowmo_active > 0:
+            pygame.draw.rect(screen, PURPLE, (status_x, status_y, 110, 25), border_radius=5)
+            draw_text(f"Slow: {slowmo_active // 60 + 1}s", SMALL_FONT, WHITE, status_x + 5, status_y + 3)
+            status_y += 30
+        if magnet_active > 0:
+            pygame.draw.rect(screen, ORANGE, (status_x, status_y, 110, 25), border_radius=5)
+            draw_text(f"Magnet: {magnet_active // 60 + 1}s", SMALL_FONT, BLACK, status_x + 5, status_y + 3)
 
         pygame.display.flip()
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                points += game_points  # Add session points before quitting
-                save_progress()  # Save progress
+                points += game_points
+                save_progress()
                 pygame.quit()
                 sys.exit()
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    # Pause functionality could go here
+                    pass
 
         # Handle player movement
         keys = pygame.key.get_pressed()
@@ -334,53 +784,71 @@ async def game_loop(difficulty):
         if keys[pygame.K_RIGHT] and player_x < SCREEN_WIDTH - 50:
             player_x += player_speed
 
-        clock.tick(60)  # 60 FPS
+        clock.tick(60)
         await asyncio.sleep(0)
 
+async def game_over(score, max_combo):
+    """Display the game over screen with stats."""
+    global high_score
 
-
-
-async def game_over(score):
-    """Display the game over screen."""
     # Load the game over image
     try:
         game_over_image = pygame.image.load("game_over.jpeg")
-        game_over_image = pygame.transform.scale(game_over_image, (300, 300))  # Resize if needed
-    except pygame.error as e:
-        print(f"Error loading image: {e}")
+        game_over_image = pygame.transform.scale(game_over_image, (200, 200))
+    except pygame.error:
         game_over_image = None
 
+    animation_timer = 0
+
     while True:
-        screen.fill((255, 255, 255))  # White background
-        draw_text("CAUGHT BY VEGETARIAN!", BIG_FONT, (255, 0, 0), *scale_position(50, 50))  # Red "GAME OVER"
-        draw_text(f"Your Score: {score}", FONT, (0, 0, 0), *scale_position(50, 150))  # Display score
+        animation_timer += 1
+        update_background()
+        draw_background(screen, False)
 
-        # Draw the image if loaded successfully
+        # Animated title
+        title_scale = 1 + 0.05 * math.sin(animation_timer * 0.1)
+        draw_text_centered("CAUGHT BY VEGETARIAN!", BIG_FONT, RED, 50)
+
+        # Stats box
+        box_y = 120
+        pygame.draw.rect(screen, (240, 240, 255), (SCREEN_WIDTH // 2 - 150, box_y, 300, 150), border_radius=15)
+        pygame.draw.rect(screen, BLUE, (SCREEN_WIDTH // 2 - 150, box_y, 300, 150), 3, border_radius=15)
+
+        draw_text_centered(f"Score: {score}", FONT, BLACK, box_y + 20)
+        draw_text_centered(f"Best Combo: x{max_combo + 1}", SMALL_FONT, PURPLE, box_y + 60)
+
+        if score >= high_score and score > 0:
+            # New high score animation
+            if animation_timer % 30 < 15:
+                draw_text_centered("NEW HIGH SCORE!", FONT, YELLOW, box_y + 100)
+        else:
+            draw_text_centered(f"High Score: {high_score}", SMALL_FONT, GREEN, box_y + 100)
+
+        # Draw the game over image
         if game_over_image:
-            screen.blit(game_over_image, scale_position(50, 200))  # Adjust position as needed
+            img_x = (SCREEN_WIDTH - 200) // 2
+            screen.blit(game_over_image, (img_x, 290))
 
-        draw_text("Press ENTER to return to the main menu", FONT, (0, 0, 0), *scale_position(50, 550))
+        draw_text_centered("Press ENTER to continue", FONT, BLACK, SCREEN_HEIGHT - 60)
         pygame.display.flip()
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                save_progress()  # Save progress before quitting
+                save_progress()
                 pygame.quit()
                 sys.exit()
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_RETURN:
-                    return  # Return to the main menu
+                    play_sound(sound_collect)
+                    return
 
         await asyncio.sleep(0)
-
+        clock.tick(60)
 
 async def main():
     """Main entry point for the game."""
-    # Load saved progress before starting the game
     load_progress()
-    # Start the game by showing the main menu
     await main_menu()
 
-# Run the game only if this file is executed directly
 if __name__ == "__main__":
     asyncio.run(main())
