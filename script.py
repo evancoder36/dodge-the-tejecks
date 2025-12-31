@@ -47,9 +47,44 @@ shop_items = {
 equipped_item = "EMDRTejeck"
 selected_item = 0
 
-# Load diamond image
-diamond_image = pygame.image.load("adeline.jpeg")
-diamond_image = pygame.transform.scale(diamond_image, (40, 40))
+# Load all enemy images
+enemy_images = [
+    pygame.image.load("adeline.jpeg"),
+    pygame.image.load("alvin.jpeg"),
+    pygame.image.load("amelia.jpeg"),
+    pygame.image.load("babes.jpeg"),
+    pygame.image.load("babytejeck.jpeg"),
+    pygame.image.load("me.jpeg"),
+]
+
+# Enemy class for falling characters with random sizes
+class Enemy:
+    def __init__(self, x):
+        self.x = x
+        self.y = -50
+        self.image = random.choice(enemy_images)
+        self.size = random.randint(25, 60)  # Random size from small to big
+        self.scaled_image = pygame.transform.scale(self.image, (self.size, self.size))
+        self.rotation = random.uniform(-30, 30)  # Slight random rotation
+        self.spin_speed = random.uniform(-2, 2)  # Spinning animation
+        self.angle = 0
+
+    def update(self, speed):
+        self.y += speed
+        self.angle += self.spin_speed
+
+    def draw(self, surface, shake_x=0, shake_y=0):
+        # Rotate the image for fun spinning effect
+        rotated = pygame.transform.rotate(self.scaled_image, self.angle)
+        rect = rotated.get_rect(center=(self.x + shake_x, self.y + shake_y))
+        surface.blit(rotated, rect)
+
+    def get_rect(self):
+        half = self.size // 2
+        return pygame.Rect(self.x - half, self.y - half, self.size, self.size)
+
+    def is_off_screen(self):
+        return self.y > SCREEN_HEIGHT + self.size
 
 # Clock for controlling FPS
 clock = pygame.time.Clock()
@@ -624,7 +659,7 @@ async def game_loop(difficulty):
     base_player_speed = 10
     player_speed = base_player_speed
     diamond_speed = difficulty
-    diamonds = []
+    enemies = []  # Now using Enemy class with random images/sizes
     power_ups = []
     particles = []
     lasers = []
@@ -710,11 +745,11 @@ async def game_loop(difficulty):
                 if shield_active % 10 < 5:
                     pygame.draw.circle(screen, CYAN, (int(player_x + 25), int(player_y + 25 + bob_offset)), 38, 2)
 
-        # Update and draw diamonds
-        for diamond in diamonds[:]:
-            diamond[1] += current_diamond_speed
-            if diamond[1] > SCREEN_HEIGHT:
-                diamonds.remove(diamond)
+        # Update and draw enemies (random characters with random sizes)
+        for enemy in enemies[:]:
+            enemy.update(current_diamond_speed)
+            if enemy.is_off_screen():
+                enemies.remove(enemy)
                 game_points += 1 + combo
                 dodge_streak += 1
                 combo = min(combo + 1, 10)
@@ -728,14 +763,14 @@ async def game_loop(difficulty):
                 if dodge_streak % 10 == 0:
                     for _ in range(5):
                         particles.append(Particle(player_x + 25, player_y, GREEN))
+            else:
+                enemy.draw(screen, shake_x, shake_y)
 
-            screen.blit(diamond_image, (diamond[0] - 20 + shake_x, diamond[1] - 20 + shake_y))
-
-        # Spawn new diamonds
+        # Spawn new enemies (random character, random size)
         spawn_rate = 0.05 + (difficulty / 500)  # Harder difficulties spawn more
         if random.random() < spawn_rate:
-            diamond_x = random.randint(50, SCREEN_WIDTH - 50)
-            diamonds.append([diamond_x, -20])
+            enemy_x = random.randint(50, SCREEN_WIDTH - 50)
+            enemies.append(Enemy(enemy_x))
 
         # Update and draw lasers
         for laser in lasers[:]:
@@ -745,13 +780,12 @@ async def game_loop(difficulty):
                 continue
             laser.draw(screen)
 
-            # Check laser collision with diamonds
+            # Check laser collision with enemies
             laser_rect = laser.get_rect()
-            for diamond in diamonds[:]:
-                diamond_rect = pygame.Rect(diamond[0] - 15, diamond[1] - 15, 30, 30)
-                if laser_rect.colliderect(diamond_rect):
-                    # Destroy diamond
-                    diamonds.remove(diamond)
+            for enemy in enemies[:]:
+                if laser_rect.colliderect(enemy.get_rect()):
+                    # Destroy enemy
+                    enemies.remove(enemy)
                     if laser in lasers:
                         lasers.remove(laser)
                     enemies_destroyed += 1
@@ -760,7 +794,7 @@ async def game_loop(difficulty):
                     trigger_screen_shake(3, 3)
                     # Explosion particles
                     for _ in range(15):
-                        particles.append(Particle(diamond[0], diamond[1], ORANGE))
+                        particles.append(Particle(enemy.x, enemy.y, ORANGE))
                     break
 
         # Update and draw explosions
@@ -825,16 +859,16 @@ async def game_loop(difficulty):
                     for _ in range(15):
                         particles.append(Particle(power.x, power.y, ORANGE))
                 elif power.type == 'bomb':
-                    # Clear all diamonds on screen!
+                    # Clear all enemies on screen!
                     play_sound(sound_bomb)
                     trigger_screen_shake(20, 15)
-                    for diamond in diamonds:
-                        explosions.append(Explosion(diamond[0], diamond[1]))
+                    for enemy in enemies:
+                        explosions.append(Explosion(enemy.x, enemy.y))
                         game_points += 2
                         for _ in range(8):
-                            particles.append(Particle(diamond[0], diamond[1], RED))
-                    enemies_destroyed += len(diamonds)
-                    diamonds.clear()
+                            particles.append(Particle(enemy.x, enemy.y, RED))
+                    enemies_destroyed += len(enemies)
+                    enemies.clear()
                     for _ in range(20):
                         particles.append(Particle(power.x, power.y, RED))
                 elif power.type == 'rapid':
@@ -852,19 +886,18 @@ async def game_loop(difficulty):
 
                 power_ups.remove(power)
 
-        # Check for collisions with diamonds
+        # Check for collisions with enemies
         player_rect = pygame.Rect(player_x + 5, player_y + 5, 40, 40)  # Slightly smaller hitbox
-        for diamond in diamonds:
-            diamond_rect = pygame.Rect(diamond[0] - 15, diamond[1] - 15, 30, 30)
-            if player_rect.colliderect(diamond_rect):
+        for enemy in enemies[:]:
+            if player_rect.colliderect(enemy.get_rect()):
                 if shield_active > 0:
                     # Shield blocks the hit
                     shield_active = 0
-                    diamonds.remove(diamond)
+                    enemies.remove(enemy)
                     trigger_screen_shake(5, 5)
                     play_sound(sound_hit)
                     for _ in range(20):
-                        particles.append(Particle(diamond[0], diamond[1], CYAN))
+                        particles.append(Particle(enemy.x, enemy.y, CYAN))
                 else:
                     # Game over
                     play_sound(sound_hit)
