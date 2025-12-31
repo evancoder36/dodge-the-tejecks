@@ -57,6 +57,12 @@ enemy_images = [
     pygame.image.load("me.jpeg"),
 ]
 
+# Load boss image
+try:
+    boss_image = pygame.image.load("tejeck_boss.jpg")
+except:
+    boss_image = pygame.image.load("babytejeck.jpeg")  # Fallback
+
 # Enemy class for falling characters with random sizes
 class Enemy:
     def __init__(self, x):
@@ -85,6 +91,160 @@ class Enemy:
 
     def is_off_screen(self):
         return self.y > SCREEN_HEIGHT + self.size
+
+# Boss class for the FINAL VIRTUAL EMDR TEJECK BOSS
+class Boss:
+    def __init__(self):
+        self.size = 150  # Big boss!
+        self.x = SCREEN_WIDTH // 2
+        self.y = 100
+        self.target_x = SCREEN_WIDTH // 2
+        self.health = 100
+        self.max_health = 100
+        self.image = pygame.transform.scale(boss_image, (self.size, self.size))
+        self.angle = 0
+        self.spin_speed = 1
+        self.move_timer = 0
+        self.fire_timer = 0
+        self.fire_rate = 60  # Frames between fire shots
+        self.phase = 1  # Boss phases get harder
+        self.hit_flash = 0
+
+    def update(self):
+        # Spin animation
+        self.angle += self.spin_speed
+
+        # Move towards target
+        if abs(self.x - self.target_x) > 5:
+            if self.x < self.target_x:
+                self.x += 3
+            else:
+                self.x -= 3
+
+        # Change target position periodically
+        self.move_timer += 1
+        if self.move_timer > 90:
+            self.move_timer = 0
+            self.target_x = random.randint(100, SCREEN_WIDTH - 100)
+
+        # Update phase based on health
+        if self.health < 30:
+            self.phase = 3
+            self.fire_rate = 20
+            self.spin_speed = 3
+        elif self.health < 60:
+            self.phase = 2
+            self.fire_rate = 40
+            self.spin_speed = 2
+
+        # Fire timer
+        self.fire_timer += 1
+
+        # Hit flash decay
+        if self.hit_flash > 0:
+            self.hit_flash -= 1
+
+    def should_fire(self):
+        if self.fire_timer >= self.fire_rate:
+            self.fire_timer = 0
+            return True
+        return False
+
+    def draw(self, surface):
+        # Draw boss with rotation (ball-shaped spinning)
+        rotated = pygame.transform.rotate(self.image, self.angle)
+        rect = rotated.get_rect(center=(self.x, self.y))
+
+        # Flash red when hit
+        if self.hit_flash > 0:
+            # Create a red tinted surface
+            flash_surface = rotated.copy()
+            flash_surface.fill((255, 0, 0, 100), special_flags=pygame.BLEND_RGBA_MULT)
+            surface.blit(flash_surface, rect)
+        else:
+            surface.blit(rotated, rect)
+
+        # Draw health bar
+        bar_width = 200
+        bar_height = 20
+        bar_x = SCREEN_WIDTH // 2 - bar_width // 2
+        bar_y = 20
+        health_ratio = self.health / self.max_health
+
+        # Background
+        pygame.draw.rect(surface, (50, 50, 50), (bar_x - 2, bar_y - 2, bar_width + 4, bar_height + 4), border_radius=5)
+        # Health bar
+        health_color = GREEN if health_ratio > 0.5 else (YELLOW if health_ratio > 0.25 else RED)
+        pygame.draw.rect(surface, health_color, (bar_x, bar_y, int(bar_width * health_ratio), bar_height), border_radius=3)
+        # Border
+        pygame.draw.rect(surface, WHITE, (bar_x - 2, bar_y - 2, bar_width + 4, bar_height + 4), 2, border_radius=5)
+
+        # Boss name
+        name_text = FONT.render("FINAL VIRTUAL EMDR TEJECK BOSS", True, RED)
+        surface.blit(name_text, (SCREEN_WIDTH // 2 - name_text.get_width() // 2, bar_y + 25))
+
+        # Phase indicator
+        phase_text = SMALL_FONT.render(f"Phase {self.phase}", True, PURPLE)
+        surface.blit(phase_text, (SCREEN_WIDTH // 2 - phase_text.get_width() // 2, bar_y + 50))
+
+    def get_rect(self):
+        half = self.size // 2
+        return pygame.Rect(self.x - half, self.y - half, self.size, self.size)
+
+    def take_damage(self, amount):
+        self.health -= amount
+        self.hit_flash = 10
+        return self.health <= 0
+
+# Fire projectile class for boss attacks
+class Fire:
+    def __init__(self, x, y, target_x, target_y, speed=8):
+        self.x = x
+        self.y = y
+        # Calculate direction towards target
+        dx = target_x - x
+        dy = target_y - y
+        dist = math.sqrt(dx*dx + dy*dy)
+        if dist > 0:
+            self.vx = (dx / dist) * speed
+            self.vy = (dy / dist) * speed
+        else:
+            self.vx = 0
+            self.vy = speed
+        self.size = 15
+        self.lifetime = 300
+        self.angle = 0
+
+    def update(self):
+        self.x += self.vx
+        self.y += self.vy
+        self.angle += 10
+        self.lifetime -= 1
+
+    def draw(self, surface):
+        # Draw fire as animated flame
+        colors = [RED, ORANGE, YELLOW]
+        for i, color in enumerate(colors):
+            size = self.size - i * 3
+            if size > 0:
+                offset = math.sin(self.angle * 0.1 + i) * 3
+                pygame.draw.circle(surface, color, (int(self.x + offset), int(self.y)), size)
+
+        # Fire trail
+        for i in range(3):
+            trail_x = self.x - self.vx * (i + 1) * 0.5
+            trail_y = self.y - self.vy * (i + 1) * 0.5
+            trail_size = self.size - i * 4
+            if trail_size > 0:
+                pygame.draw.circle(surface, ORANGE, (int(trail_x), int(trail_y)), trail_size)
+
+    def get_rect(self):
+        return pygame.Rect(self.x - self.size, self.y - self.size, self.size * 2, self.size * 2)
+
+    def is_dead(self):
+        return (self.lifetime <= 0 or
+                self.x < -50 or self.x > SCREEN_WIDTH + 50 or
+                self.y < -50 or self.y > SCREEN_HEIGHT + 50)
 
 # Clock for controlling FPS
 clock = pygame.time.Clock()
@@ -521,6 +681,7 @@ async def choose_difficulty():
         ("Impossible", 30, RED),
         ("God Mode", 100, PURPLE),
         ("Creator Mode", 150, BLACK),
+        ("BOSS MODE", -1, RED),  # Special boss mode
     ]
 
     while True:
@@ -556,7 +717,10 @@ async def choose_difficulty():
                     play_sound(sound_collect)
                 elif event.key == pygame.K_RETURN:
                     play_sound(sound_powerup)
-                    await game_loop(difficulties[selected][1])
+                    if difficulties[selected][1] == -1:  # Boss mode
+                        await boss_game_loop()
+                    else:
+                        await game_loop(difficulties[selected][1])
                 elif event.key == pygame.K_1:
                     play_sound(sound_powerup)
                     await game_loop(5)
@@ -575,6 +739,9 @@ async def choose_difficulty():
                 elif event.key == pygame.K_6:
                     play_sound(sound_powerup)
                     await game_loop(150)
+                elif event.key == pygame.K_7:
+                    play_sound(sound_powerup)
+                    await boss_game_loop()
                 elif event.key == pygame.K_b:
                     play_sound(sound_collect)
                     return
@@ -1068,6 +1235,353 @@ async def game_over(score, max_combo):
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_RETURN:
                     play_sound(sound_collect)
+                    return
+
+        await asyncio.sleep(0)
+        clock.tick(60)
+
+async def boss_game_loop():
+    """BOSS MODE - Fight the FINAL VIRTUAL EMDR TEJECK BOSS!"""
+    global points, high_score, screen_shake, shake_intensity
+
+    game_points = 0
+    player_x = SCREEN_WIDTH // 2 - 25
+    player_y = SCREEN_HEIGHT - 100
+    player_speed = 12  # Faster movement for boss fight
+    enemies = []
+    particles = []
+    lasers = []
+    fires = []  # Boss fire projectiles
+    explosions = []
+
+    # Create the boss
+    boss = Boss()
+
+    # Player states
+    shield_active = 0
+    speed_boost_active = 0
+    rapid_fire_active = 0
+    double_shot_active = 0
+
+    # Laser system - more ammo for boss fight
+    laser_cooldown = 0
+    base_cooldown = 12
+    laser_ammo = 30
+    max_ammo = 50
+
+    # Animation
+    player_bob = 0
+    boss_defeated = False
+
+    while True:
+        update_background()
+        shake_x, shake_y = apply_screen_shake()
+
+        # Dark red tinted background for boss fight
+        for y in range(0, SCREEN_HEIGHT, 4):
+            ratio = y / SCREEN_HEIGHT
+            color = (int(80 + 40 * ratio), int(20 + 20 * ratio), int(40 + 30 * ratio))
+            pygame.draw.rect(screen, color, (0, y, SCREEN_WIDTH, 4))
+
+        # Update power-up timers
+        if shield_active > 0:
+            shield_active -= 1
+        if speed_boost_active > 0:
+            speed_boost_active -= 1
+        if rapid_fire_active > 0:
+            rapid_fire_active -= 1
+        if double_shot_active > 0:
+            double_shot_active -= 1
+        if laser_cooldown > 0:
+            laser_cooldown -= 1
+
+        current_speed = player_speed * 1.5 if speed_boost_active > 0 else player_speed
+
+        # Player bobbing
+        player_bob += 0.15
+        bob_offset = math.sin(player_bob) * 3
+
+        # Draw player
+        player_image = shop_items[equipped_item]["image"]
+        player_image = pygame.transform.scale(player_image, (50, 50))
+        screen.blit(player_image, (player_x + shake_x, player_y + bob_offset + shake_y))
+
+        # Draw shield effect
+        if shield_active > 0:
+            pygame.draw.circle(screen, CYAN, (int(player_x + 25), int(player_y + 25 + bob_offset)), 35, 3)
+
+        # Update and draw boss
+        boss.update()
+        boss.draw(screen)
+
+        # Boss fires at player
+        if boss.should_fire() and not boss_defeated:
+            play_sound(sound_explosion)
+            # Fire pattern based on phase
+            if boss.phase == 1:
+                fires.append(Fire(boss.x, boss.y + 75, player_x + 25, player_y + 25))
+            elif boss.phase == 2:
+                # Spread shot
+                fires.append(Fire(boss.x - 30, boss.y + 75, player_x + 25, player_y + 25))
+                fires.append(Fire(boss.x + 30, boss.y + 75, player_x + 25, player_y + 25))
+            else:
+                # Phase 3 - crazy fire
+                for angle in [-30, 0, 30]:
+                    target_x = player_x + 25 + angle * 5
+                    fires.append(Fire(boss.x, boss.y + 75, target_x, player_y + 25, speed=10))
+
+        # Update and draw fires
+        for fire in fires[:]:
+            fire.update()
+            if fire.is_dead():
+                fires.remove(fire)
+                continue
+            fire.draw(screen)
+
+            # Check fire collision with player
+            player_rect = pygame.Rect(player_x + 5, player_y + 5, 40, 40)
+            if player_rect.colliderect(fire.get_rect()):
+                if shield_active > 0:
+                    shield_active = 0
+                    fires.remove(fire)
+                    trigger_screen_shake(5, 5)
+                    play_sound(sound_hit)
+                    for _ in range(15):
+                        particles.append(Particle(fire.x, fire.y, CYAN))
+                else:
+                    # Game over
+                    play_sound(sound_hit)
+                    trigger_screen_shake(15, 20)
+                    for _ in range(30):
+                        particles.append(Particle(player_x + 25, player_y + 25, RED))
+                    points += game_points
+                    save_progress()
+                    await game_over(game_points, 0)
+                    return
+
+        # Spawn smaller enemies occasionally
+        if random.random() < 0.02:
+            enemy_x = random.randint(50, SCREEN_WIDTH - 50)
+            enemies.append(Enemy(enemy_x))
+
+        # Update and draw enemies
+        for enemy in enemies[:]:
+            enemy.update(8)  # Fixed speed for boss mode
+            if enemy.is_off_screen():
+                enemies.remove(enemy)
+                game_points += 1
+            else:
+                enemy.draw(screen, shake_x, shake_y)
+
+        # Update and draw lasers
+        for laser in lasers[:]:
+            laser.update()
+            if laser.is_off_screen():
+                lasers.remove(laser)
+                continue
+            laser.draw(screen)
+
+            # Check laser collision with boss
+            if laser.get_rect().colliderect(boss.get_rect()):
+                lasers.remove(laser)
+                if boss.take_damage(2):
+                    # Boss defeated!
+                    boss_defeated = True
+                    play_sound(sound_bomb)
+                    trigger_screen_shake(30, 30)
+                    # Big explosion
+                    for _ in range(50):
+                        particles.append(Particle(boss.x, boss.y, random.choice([RED, ORANGE, YELLOW])))
+                    game_points += 100
+                    points += game_points
+                    if game_points > high_score:
+                        high_score = game_points
+                    save_progress()
+                    await victory_screen(game_points)
+                    return
+                else:
+                    play_sound(sound_hit)
+                    trigger_screen_shake(3, 3)
+                    for _ in range(8):
+                        particles.append(Particle(laser.x, laser.y, ORANGE))
+                continue
+
+            # Check laser collision with enemies
+            for enemy in enemies[:]:
+                if laser.get_rect().colliderect(enemy.get_rect()):
+                    enemies.remove(enemy)
+                    if laser in lasers:
+                        lasers.remove(laser)
+                    game_points += 3
+                    play_sound(sound_explosion)
+                    for _ in range(10):
+                        particles.append(Particle(enemy.x, enemy.y, ORANGE))
+                    break
+
+        # Check player collision with enemies
+        player_rect = pygame.Rect(player_x + 5, player_y + 5, 40, 40)
+        for enemy in enemies[:]:
+            if player_rect.colliderect(enemy.get_rect()):
+                if shield_active > 0:
+                    shield_active = 0
+                    enemies.remove(enemy)
+                    trigger_screen_shake(5, 5)
+                    play_sound(sound_hit)
+                else:
+                    play_sound(sound_hit)
+                    trigger_screen_shake(15, 20)
+                    for _ in range(30):
+                        particles.append(Particle(player_x + 25, player_y + 25, RED))
+                    points += game_points
+                    save_progress()
+                    await game_over(game_points, 0)
+                    return
+
+        # Spawn power-ups occasionally
+        if random.random() < 0.015:
+            power_type = random.choices(
+                ['shield', 'speed', 'rapid', 'double', 'ammo'],
+                weights=[20, 15, 20, 20, 25]
+            )[0]
+            power_x = random.randint(50, SCREEN_WIDTH - 50)
+            # Create a simple power-up (reusing PowerUp class)
+            power = PowerUp(power_x, -30, power_type)
+            enemies.append(power)  # Using enemies list for simplicity
+
+        # Update and draw particles
+        for particle in particles[:]:
+            particle.update()
+            particle.draw(screen)
+            if particle.is_dead():
+                particles.remove(particle)
+
+        # Update explosions
+        for explosion in explosions[:]:
+            explosion.update()
+            explosion.draw(screen)
+            if not explosion.active:
+                explosions.remove(explosion)
+
+        # Draw UI
+        pygame.draw.rect(screen, (0, 0, 0, 150), (5, SCREEN_HEIGHT - 80, 200, 75), border_radius=10)
+        draw_text(f"Score: {game_points}", FONT, WHITE, 15, SCREEN_HEIGHT - 75)
+        ammo_color = RED if laser_ammo <= 5 else GREEN
+        draw_text(f"Ammo: {laser_ammo}/{max_ammo}", SMALL_FONT, ammo_color, 15, SCREEN_HEIGHT - 45)
+
+        # Power-up indicators
+        status_y = SCREEN_HEIGHT - 75
+        if shield_active > 0:
+            draw_text(f"Shield: {shield_active // 60 + 1}s", SMALL_FONT, CYAN, 120, status_y)
+            status_y += 20
+        if rapid_fire_active > 0:
+            draw_text(f"Rapid!", SMALL_FONT, (255, 100, 100), 120, status_y)
+
+        draw_text("SPACE: Shoot | Arrows: Move", SMALL_FONT, (150, 150, 150), 10, SCREEN_HEIGHT - 20)
+
+        pygame.display.flip()
+
+        # Event handling
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                points += game_points
+                save_progress()
+                pygame.quit()
+                sys.exit()
+
+        # Movement
+        keys = pygame.key.get_pressed()
+        if keys[pygame.K_LEFT] and player_x > 0:
+            player_x -= current_speed
+        if keys[pygame.K_RIGHT] and player_x < SCREEN_WIDTH - 50:
+            player_x += current_speed
+
+        # Shooting
+        if keys[pygame.K_SPACE] and laser_cooldown <= 0 and laser_ammo > 0:
+            play_sound(sound_laser)
+            laser_ammo -= 1
+            laser_cooldown = base_cooldown // 3 if rapid_fire_active > 0 else base_cooldown
+
+            laser_x = player_x + 25
+            laser_y = player_y - 10
+
+            if double_shot_active > 0:
+                lasers.append(Laser(laser_x - 15, laser_y, (255, 100, 100)))
+                lasers.append(Laser(laser_x + 15, laser_y, (255, 100, 100)))
+                if laser_ammo > 0:
+                    laser_ammo -= 1
+            else:
+                lasers.append(Laser(laser_x, laser_y, RED))
+
+        clock.tick(60)
+        await asyncio.sleep(0)
+
+async def victory_screen(score):
+    """Display victory screen after defeating the boss!"""
+    animation_timer = 0
+
+    while True:
+        animation_timer += 1
+        update_background()
+
+        # Victory background - golden
+        for y in range(0, SCREEN_HEIGHT, 4):
+            ratio = y / SCREEN_HEIGHT
+            r = int(255 - 50 * ratio)
+            g = int(215 - 50 * ratio)
+            b = int(0 + 50 * ratio)
+            pygame.draw.rect(screen, (r, g, b), (0, y, SCREEN_WIDTH, 4))
+
+        # Fireworks particles
+        if animation_timer % 10 == 0:
+            for _ in range(5):
+                x = random.randint(50, SCREEN_WIDTH - 50)
+                y = random.randint(50, SCREEN_HEIGHT - 200)
+                color = random.choice([RED, YELLOW, GREEN, CYAN, PURPLE, ORANGE])
+                # We'd need to maintain a particle list here, but for simplicity:
+                pygame.draw.circle(screen, color, (x, y), random.randint(5, 15))
+
+        # Victory text with animation
+        scale = 1 + 0.1 * math.sin(animation_timer * 0.1)
+        draw_text_centered("VICTORY!", BIG_FONT, YELLOW, 80)
+        draw_text_centered("You defeated the", FONT, WHITE, 150)
+        draw_text_centered("FINAL VIRTUAL EMDR TEJECK BOSS!", FONT, RED, 190)
+
+        # Score box
+        box_y = 260
+        pygame.draw.rect(screen, (50, 50, 50), (SCREEN_WIDTH // 2 - 150, box_y, 300, 120), border_radius=15)
+        pygame.draw.rect(screen, YELLOW, (SCREEN_WIDTH // 2 - 150, box_y, 300, 120), 3, border_radius=15)
+
+        draw_text_centered(f"Final Score: {score}", FONT, WHITE, box_y + 20)
+        draw_text_centered("BOSS DEFEATED!", FONT, GREEN, box_y + 60)
+
+        # Animated stars
+        for i in range(5):
+            star_x = 150 + i * 120
+            star_y = 450 + math.sin(animation_timer * 0.1 + i) * 10
+            pygame.draw.polygon(screen, YELLOW, [
+                (star_x, star_y - 20),
+                (star_x + 7, star_y - 7),
+                (star_x + 20, star_y - 7),
+                (star_x + 10, star_y + 3),
+                (star_x + 14, star_y + 20),
+                (star_x, star_y + 10),
+                (star_x - 14, star_y + 20),
+                (star_x - 10, star_y + 3),
+                (star_x - 20, star_y - 7),
+                (star_x - 7, star_y - 7),
+            ])
+
+        draw_text_centered("Press ENTER to continue", FONT, WHITE, SCREEN_HEIGHT - 60)
+        pygame.display.flip()
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                save_progress()
+                pygame.quit()
+                sys.exit()
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_RETURN:
+                    play_sound(sound_powerup)
                     return
 
         await asyncio.sleep(0)
