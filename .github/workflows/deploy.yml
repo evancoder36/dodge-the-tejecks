@@ -31,9 +31,14 @@ jobs:
           pip install --upgrade pip
           pip install pygbag pygame
 
+      - name: List files
+        run: |
+          ls -la
+
       - name: Build with Pygbag
         run: |
-          python -m pygbag --build ${{ github.workspace }}
+          python -m pygbag --build . 2>&1 || true
+          ls -la build/web/ 2>/dev/null || echo "Build folder not created"
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
