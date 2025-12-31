@@ -946,7 +946,19 @@ async def game_loop(difficulty, level_name="Easy"):
     player_bob = 0
     dodge_streak = 0
 
+    # Auto-save timer (save every 30 seconds = 1800 frames at 60fps)
+    auto_save_timer = 0
+
     while True:
+        # Auto-save progress periodically
+        auto_save_timer += 1
+        if auto_save_timer >= 1800:  # Every 30 seconds
+            auto_save_timer = 0
+            # Update best score for this level
+            if game_points > best_scores.get(level_name, 0):
+                best_scores[level_name] = game_points
+            save_progress()
+
         # Update background
         update_background()
 
@@ -1382,7 +1394,19 @@ async def boss_game_loop():
     player_bob = 0
     boss_defeated = False
 
+    # Auto-save timer (save every 30 seconds = 1800 frames at 60fps)
+    auto_save_timer = 0
+
     while True:
+        # Auto-save progress periodically
+        auto_save_timer += 1
+        if auto_save_timer >= 1800:  # Every 30 seconds
+            auto_save_timer = 0
+            # Update best score for boss mode
+            if game_points > best_scores.get("BOSS MODE", 0):
+                best_scores["BOSS MODE"] = game_points
+            save_progress()
+
         update_background()
         shake_x, shake_y = apply_screen_shake()
 
