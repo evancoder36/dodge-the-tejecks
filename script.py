@@ -471,12 +471,49 @@ def draw_background(surface, game_active=False):
     for p in bg_particles:
         pygame.draw.circle(surface, (200, 200, 255), (int(p['x']), int(p['y'])), p['size'])
 
+# Level unlock requirements: score needed in previous level to unlock next
+# Easy is always unlocked, others require score in previous level
+level_unlock_requirements = {
+    "Easy": 0,        # Always unlocked
+    "Medium": 20,     # Need 20 points in Easy
+    "Hard": 25,       # Need 25 points in Medium
+    "Impossible": 30, # Need 30 points in Hard
+    "God Mode": 35,   # Need 35 points in Impossible
+    "Creator Mode": 40, # Need 40 points in God Mode
+    "BOSS MODE": 45,  # Need 45 points in Creator Mode
+}
+
+# Best scores per difficulty level
+best_scores = {
+    "Easy": 0,
+    "Medium": 0,
+    "Hard": 0,
+    "Impossible": 0,
+    "God Mode": 0,
+    "Creator Mode": 0,
+    "BOSS MODE": 0,
+}
+
+def is_level_unlocked(level_name):
+    """Check if a level is unlocked based on previous level's best score."""
+    level_order = ["Easy", "Medium", "Hard", "Impossible", "God Mode", "Creator Mode", "BOSS MODE"]
+    level_idx = level_order.index(level_name)
+
+    if level_idx == 0:
+        return True  # Easy is always unlocked
+
+    # Check if previous level's best score meets requirement
+    prev_level = level_order[level_idx - 1]
+    required_score = level_unlock_requirements[level_name]
+    return best_scores[prev_level] >= required_score
+
 def save_progress():
     global high_score
     progress = {
         "points": points,
         "high_score": high_score,
-        "purchased_items": {item: data["purchased"] for item, data in shop_items.items()}
+        "purchased_items": {item: data["purchased"] for item, data in shop_items.items()},
+        "best_scores": best_scores,
     }
     try:
         with open("save_progress.json", "w") as file:
@@ -485,7 +522,7 @@ def save_progress():
         print(f"Failed to save progress: {e}")
 
 def load_progress():
-    global points, high_score
+    global points, high_score, best_scores
     try:
         with open("save_progress.json", "r") as file:
             progress = json.load(file)
@@ -493,11 +530,17 @@ def load_progress():
             high_score = progress.get("high_score", 0)
             for item in shop_items:
                 shop_items[item]["purchased"] = progress["purchased_items"].get(item, False)
+            # Load best scores
+            saved_scores = progress.get("best_scores", {})
+            for level in best_scores:
+                best_scores[level] = saved_scores.get(level, 0)
     except (FileNotFoundError, json.JSONDecodeError):
         points = 0
         high_score = 0
         for item in shop_items:
             shop_items[item]["purchased"] = False
+        for level in best_scores:
+            best_scores[level] = 0
 
 def draw_text(text, font, color, x, y):
     render = font.render(text, True, color)
@@ -604,6 +647,7 @@ async def instructions_screen():
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
+                save_progress()
                 pygame.quit()
                 sys.exit()
             elif event.type == pygame.KEYDOWN:
@@ -661,6 +705,7 @@ async def changelog_screen():
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
+                save_progress()
                 pygame.quit()
                 sys.exit()
             elif event.type == pygame.KEYDOWN:
@@ -678,15 +723,19 @@ async def changelog_screen():
 async def choose_difficulty():
     """Choose difficulty screen."""
     selected = 0
+    # Format: (name, speed, color)
     difficulties = [
-        ("Easy", 5, GREEN),
-        ("Medium", 10, YELLOW),
-        ("Hard", 15, ORANGE),
-        ("Impossible", 30, RED),
-        ("God Mode", 100, PURPLE),
-        ("Creator Mode", 150, BLACK),
-        ("BOSS MODE", -1, RED),  # Special boss mode
+        ("Easy", 3, GREEN),          # Slower speed (was 5)
+        ("Medium", 6, YELLOW),       # Adjusted (was 10)
+        ("Hard", 10, ORANGE),        # Adjusted (was 15)
+        ("Impossible", 15, RED),     # Adjusted (was 30)
+        ("God Mode", 25, PURPLE),    # Adjusted (was 100)
+        ("Creator Mode", 35, BLACK), # Adjusted (was 150)
+        ("BOSS MODE", -1, RED),      # Special boss mode
     ]
+
+    # Level order for unlock checking
+    level_order = ["Easy", "Medium", "Hard", "Impossible", "God Mode", "Creator Mode", "BOSS MODE"]
 
     while True:
         update_background()
@@ -695,21 +744,35 @@ async def choose_difficulty():
         draw_text_centered("Choose Difficulty", BIG_FONT, BLACK, 50)
 
         for i, (name, speed, color) in enumerate(difficulties):
-            y_pos = 150 + i * 60
+            y_pos = 130 + i * 55
+
+            unlocked = is_level_unlocked(name)
+            display_color = color if unlocked else (150, 150, 150)
 
             # Highlight selected
             if i == selected:
-                pygame.draw.rect(screen, (*color, 50), (50, y_pos - 5, SCREEN_WIDTH - 100, 50), border_radius=10)
-                pygame.draw.rect(screen, color, (50, y_pos - 5, SCREEN_WIDTH - 100, 50), 3, border_radius=10)
+                pygame.draw.rect(screen, (*display_color[:3], 50) if len(display_color) == 3 else display_color, (50, y_pos - 5, SCREEN_WIDTH - 100, 48), border_radius=10)
+                pygame.draw.rect(screen, display_color, (50, y_pos - 5, SCREEN_WIDTH - 100, 48), 3, border_radius=10)
 
-            draw_text(f"{i+1}. {name}", FONT, color, 80, y_pos + 10)
-            draw_text(f"Speed: {speed}", SMALL_FONT, BLACK, SCREEN_WIDTH - 200, y_pos + 12)
+            # Show level name
+            if unlocked:
+                draw_text(f"{i+1}. {name}", FONT, display_color, 80, y_pos + 8)
+                # Show best score for this level
+                if best_scores[name] > 0:
+                    draw_text(f"Best: {best_scores[name]}", SMALL_FONT, GREEN, SCREEN_WIDTH - 120, y_pos + 10)
+            else:
+                draw_text(f"{i+1}. {name} [LOCKED]", FONT, display_color, 80, y_pos + 8)
+                # Show requirement to unlock
+                prev_level = level_order[i - 1] if i > 0 else "Easy"
+                req = level_unlock_requirements[name]
+                draw_text(f"Need {req} in {prev_level}", SMALL_FONT, (100, 100, 100), SCREEN_WIDTH - 180, y_pos + 10)
 
-        draw_text_centered("Press number or ENTER, B to go back", SMALL_FONT, BLACK, SCREEN_HEIGHT - 40)
+        draw_text_centered("UP/DOWN + ENTER or number key, B = back", SMALL_FONT, BLACK, SCREEN_HEIGHT - 40)
         pygame.display.flip()
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
+                save_progress()
                 pygame.quit()
                 sys.exit()
             elif event.type == pygame.KEYDOWN:
@@ -720,32 +783,55 @@ async def choose_difficulty():
                     selected = (selected + 1) % len(difficulties)
                     play_sound(sound_collect)
                 elif event.key == pygame.K_RETURN:
-                    play_sound(sound_powerup)
-                    if difficulties[selected][1] == -1:  # Boss mode
+                    name = difficulties[selected][0]
+                    if is_level_unlocked(name):
+                        play_sound(sound_powerup)
+                        if difficulties[selected][1] == -1:  # Boss mode
+                            await boss_game_loop()
+                        else:
+                            await game_loop(difficulties[selected][1], name)
+                    else:
+                        play_sound(sound_hit)  # Locked sound
+                elif event.key == pygame.K_1:
+                    if is_level_unlocked("Easy"):
+                        play_sound(sound_powerup)
+                        await game_loop(3, "Easy")
+                elif event.key == pygame.K_2:
+                    if is_level_unlocked("Medium"):
+                        play_sound(sound_powerup)
+                        await game_loop(6, "Medium")
+                    else:
+                        play_sound(sound_hit)
+                elif event.key == pygame.K_3:
+                    if is_level_unlocked("Hard"):
+                        play_sound(sound_powerup)
+                        await game_loop(10, "Hard")
+                    else:
+                        play_sound(sound_hit)
+                elif event.key == pygame.K_4:
+                    if is_level_unlocked("Impossible"):
+                        play_sound(sound_powerup)
+                        await game_loop(15, "Impossible")
+                    else:
+                        play_sound(sound_hit)
+                elif event.key == pygame.K_5:
+                    if is_level_unlocked("God Mode"):
+                        play_sound(sound_powerup)
+                        await game_loop(25, "God Mode")
+                    else:
+                        play_sound(sound_hit)
+                elif event.key == pygame.K_6:
+                    if is_level_unlocked("Creator Mode"):
+                        play_sound(sound_powerup)
+                        await game_loop(35, "Creator Mode")
+                    else:
+                        play_sound(sound_hit)
+                elif event.key == pygame.K_7:
+                    if is_level_unlocked("BOSS MODE"):
+                        play_sound(sound_powerup)
                         await boss_game_loop()
                     else:
-                        await game_loop(difficulties[selected][1])
-                elif event.key == pygame.K_1:
-                    play_sound(sound_powerup)
-                    await game_loop(5)
-                elif event.key == pygame.K_2:
-                    play_sound(sound_powerup)
-                    await game_loop(10)
-                elif event.key == pygame.K_3:
-                    play_sound(sound_powerup)
-                    await game_loop(15)
-                elif event.key == pygame.K_4:
-                    play_sound(sound_powerup)
-                    await game_loop(30)
-                elif event.key == pygame.K_5:
-                    play_sound(sound_powerup)
-                    await game_loop(100)
-                elif event.key == pygame.K_6:
-                    play_sound(sound_powerup)
-                    await game_loop(150)
-                elif event.key == pygame.K_7:
-                    play_sound(sound_powerup)
-                    await boss_game_loop()
+                        play_sound(sound_hit)
                 elif event.key == pygame.K_b:
                     play_sound(sound_collect)
                     return
@@ -793,6 +879,7 @@ async def shop():
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
+                save_progress()
                 pygame.quit()
                 sys.exit()
             elif event.type == pygame.KEYDOWN:
@@ -820,14 +907,14 @@ async def shop():
         await asyncio.sleep(0)
         clock.tick(60)
 
-async def game_loop(difficulty):
+async def game_loop(difficulty, level_name="Easy"):
     """Main game loop with power-ups, lasers, and effects."""
-    global points, high_score, screen_shake, shake_intensity
+    global points, high_score, screen_shake, shake_intensity, best_scores
 
     game_points = 0
     player_x = SCREEN_WIDTH // 2 - 25
     player_y = SCREEN_HEIGHT - 100
-    base_player_speed = 10
+    base_player_speed = 12  # Slightly faster player for easier dodging
     player_speed = base_player_speed
     diamond_speed = difficulty
     enemies = []  # Now using Enemy class with random images/sizes
@@ -938,7 +1025,19 @@ async def game_loop(difficulty):
                 enemy.draw(screen, shake_x, shake_y)
 
         # Spawn new enemies (random character, random size)
-        spawn_rate = 0.05 + (difficulty / 500)  # Harder difficulties spawn more
+        # Easy: ~3 per second (0.05), harder levels spawn more
+        if difficulty <= 3:
+            spawn_rate = 0.05  # Easy: about 3 per second at 60fps
+        elif difficulty <= 6:
+            spawn_rate = 0.06  # Medium
+        elif difficulty <= 10:
+            spawn_rate = 0.07  # Hard
+        elif difficulty <= 15:
+            spawn_rate = 0.08  # Impossible
+        elif difficulty <= 25:
+            spawn_rate = 0.10  # God Mode
+        else:
+            spawn_rate = 0.12  # Creator Mode
         if random.random() < spawn_rate:
             enemy_x = random.randint(50, SCREEN_WIDTH - 50)
             enemies.append(Enemy(enemy_x))
@@ -1081,6 +1180,9 @@ async def game_loop(difficulty):
                     points += game_points
                     if game_points > high_score:
                         high_score = game_points
+                    # Update best score for this level
+                    if game_points > best_scores.get(level_name, 0):
+                        best_scores[level_name] = game_points
                     save_progress()
                     await game_over(game_points, combo)
                     return
@@ -1143,6 +1245,9 @@ async def game_loop(difficulty):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 points += game_points
+                # Update best score for this level
+                if game_points > best_scores.get(level_name, 0):
+                    best_scores[level_name] = game_points
                 save_progress()
                 pygame.quit()
                 sys.exit()
@@ -1246,7 +1351,7 @@ async def game_over(score, max_combo):
 
 async def boss_game_loop():
     """BOSS MODE - Fight the FINAL VIRTUAL EMDR TEJECK BOSS!"""
-    global points, high_score, screen_shake, shake_intensity
+    global points, high_score, screen_shake, shake_intensity, best_scores
 
     game_points = 0
     player_x = SCREEN_WIDTH // 2 - 25
@@ -1371,6 +1476,9 @@ async def boss_game_loop():
                     for _ in range(30):
                         particles.append(Particle(player_x + 25, player_y + 25, RED))
                     points += game_points
+                    # Update best score for boss mode
+                    if game_points > best_scores.get("BOSS MODE", 0):
+                        best_scores["BOSS MODE"] = game_points
                     save_progress()
                     await game_over(game_points, 0)
                     return
@@ -1468,6 +1576,9 @@ async def boss_game_loop():
                     for _ in range(30):
                         particles.append(Particle(player_x + 25, player_y + 25, RED))
                     points += game_points
+                    # Update best score for boss mode
+                    if game_points > best_scores.get("BOSS MODE", 0):
+                        best_scores["BOSS MODE"] = game_points
                     save_progress()
                     await game_over(game_points, 0)
                     return
@@ -1519,6 +1630,9 @@ async def boss_game_loop():
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 points += game_points
+                # Update best score for boss mode
+                if game_points > best_scores.get("BOSS MODE", 0):
+                    best_scores["BOSS MODE"] = game_points
                 save_progress()
                 pygame.quit()
                 sys.exit()
