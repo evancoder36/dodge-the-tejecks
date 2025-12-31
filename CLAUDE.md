@@ -8,9 +8,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Install dependencies
 pip install -r requirement.txt
 
-# Run the game
+# Run the game (desktop)
 python script.py
+# OR
+python main.py
 ```
+
+## Web Deployment
+
+The game uses Pygbag for web deployment to GitHub Pages. Deployment is automatic via GitHub Actions on push to main.
+
+```bash
+# Local web testing
+pygbag .
+# Opens browser at http://localhost:8000
+```
+
+Live URL: https://evancoder36.github.io/dodge-the-tejecks/
 
 ## Project Overview
 

@@ -2,6 +2,7 @@ import pygame
 import random
 import sys
 import json
+import asyncio
 
 # Initialize Pygame
 pygame.init()
@@ -21,7 +22,7 @@ pygame.display.set_caption("Dodge the Diamonds")
 # Game variables
 points = 0  # Initialize points to 0
 shop_items = {
-    "EMDRTejeck": {"cost": 0, "image": pygame.image.load("tejeck.jpeg"), "purchased": True},  # Tejeck is free
+    "EMDRTejeck": {"cost": 0, "image": pygame.image.load("babytejeck.jpeg"), "purchased": True},  # Tejeck is free
     "BabyTejeck": {"cost": 0, "image": pygame.image.load("babytejeck.jpeg"), "purchased": False},
     "Amelia": {"cost": 0, "image": pygame.image.load("amelia.jpeg"), "purchased": False},
     "Evan": {"cost": 0, "image": pygame.image.load("me.jpeg"), "purchased": False},
@@ -80,7 +81,7 @@ def scale_position(x, y):
 def scale_size(width, height):
     return width * SCREEN_WIDTH // 360, height * SCREEN_HEIGHT // 640
 
-def main_menu():
+async def main_menu():
     """Display the main menu."""
     while True:
         screen.fill((255, 255, 255))  # White background
@@ -100,21 +101,23 @@ def main_menu():
                 sys.exit()
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_1:
-                    choose_difficulty()
+                    await choose_difficulty()
                 elif event.key == pygame.K_2:
-                    shop()
+                    await shop()
                 elif event.key == pygame.K_3:
                     save_progress()  # Save progress before quitting
                     pygame.quit()
                     sys.exit()
                 elif event.key == pygame.K_4:
-                    instructions_screen()
+                    await instructions_screen()
                 elif event.key == pygame.K_5:
-                    changelog_screen()
+                    await changelog_screen()
+
+        await asyncio.sleep(0)
 
 
 
-def instructions_screen():
+async def instructions_screen():
     """Display the instructions screen."""
     while True:
         screen.fill((255, 255, 255))  # White background
@@ -136,7 +139,9 @@ def instructions_screen():
                 if event.key == pygame.K_b:
                     return
 
-def changelog_screen():
+        await asyncio.sleep(0)
+
+async def changelog_screen():
     """Display the changelog screen."""
     updates = [
         "Version 1.0:",
@@ -150,7 +155,7 @@ def changelog_screen():
         "- Implemented saving purchased items.",
         "- Added equipped status for purchased items.",
         "- Bugs fixed. ",
-        "- Tejeck Characters added"
+        "- Tejeck Characters added",
         "",
     ]
 
@@ -173,7 +178,9 @@ def changelog_screen():
                 if event.key == pygame.K_b:
                     return
 
-def choose_difficulty():
+        await asyncio.sleep(0)
+
+async def choose_difficulty():
     """Choose difficulty screen."""
     while True:
         screen.fill((255, 255, 255))  # White background
@@ -193,21 +200,23 @@ def choose_difficulty():
                 sys.exit()
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_1:
-                    game_loop(5)
+                    await game_loop(5)
                 elif event.key == pygame.K_2:
-                    game_loop(10)
+                    await game_loop(10)
                 elif event.key == pygame.K_3:
-                    game_loop(15)
+                    await game_loop(15)
                 elif event.key == pygame.K_4:
-                    game_loop(30)
+                    await game_loop(30)
                 elif event.key == pygame.K_5:
-                    game_loop(100)
+                    await game_loop(100)
                 elif event.key == pygame.K_6:
-                    game_loop(150)
+                    await game_loop(150)
                 elif event.key == pygame.K_b:
                     return
 
-def shop():
+        await asyncio.sleep(0)
+
+async def shop():
     """Shop screen."""
     global points, equipped_item, selected_item
 
@@ -264,7 +273,9 @@ def shop():
                 elif event.key == pygame.K_b:
                     return
 
-def game_loop(difficulty):
+        await asyncio.sleep(0)
+
+async def game_loop(difficulty):
     """Main game loop."""
     global points
     game_points = 0  # Session-specific points
@@ -300,7 +311,7 @@ def game_loop(difficulty):
             if player_x < diamond[0] < player_x + 50 and player_y < diamond[1] < player_y + 50:
                 points += game_points  # Add session-specific points to total
                 save_progress()  # Save progress
-                game_over(game_points)  # Pass session score to game over screen
+                await game_over(game_points)  # Pass session score to game over screen
                 return
 
         # Display scores
@@ -324,11 +335,12 @@ def game_loop(difficulty):
             player_x += player_speed
 
         clock.tick(60)  # 60 FPS
+        await asyncio.sleep(0)
 
 
 
 
-def game_over(score):
+async def game_over(score):
     """Display the game over screen."""
     # Load the game over image
     try:
@@ -359,10 +371,16 @@ def game_over(score):
                 if event.key == pygame.K_RETURN:
                     return  # Return to the main menu
 
+        await asyncio.sleep(0)
 
 
-# Load saved progress before starting the game
-load_progress()
+async def main():
+    """Main entry point for the game."""
+    # Load saved progress before starting the game
+    load_progress()
+    # Start the game by showing the main menu
+    await main_menu()
 
-# Start the game by showing the main menu
-main_menu()
+# Run the game only if this file is executed directly
+if __name__ == "__main__":
+    asyncio.run(main())
