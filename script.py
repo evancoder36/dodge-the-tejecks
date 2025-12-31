@@ -1281,6 +1281,14 @@ async def boss_game_loop():
         update_background()
         shake_x, shake_y = apply_screen_shake()
 
+        # Limit list sizes to prevent memory issues
+        while len(particles) > 100:
+            particles.pop(0)
+        while len(fires) > 50:
+            fires.pop(0)
+        while len(enemies) > 30:
+            enemies.pop(0)
+
         # Dark red tinted background for boss fight
         for y in range(0, SCREEN_HEIGHT, 4):
             ratio = y / SCREEN_HEIGHT
