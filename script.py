@@ -1434,7 +1434,7 @@ async def boss_game_loop():
                 # Check if it's a power-up
                 if isinstance(enemy, PowerUp):
                     enemies.remove(enemy)
-                    play_sound(sound_coin)
+                    play_sound(sound_powerup)
                     # Apply power-up effect
                     if enemy.type == 'shield':
                         shield_active = 300
@@ -1489,7 +1489,7 @@ async def boss_game_loop():
                 explosions.remove(explosion)
 
         # Draw UI
-        pygame.draw.rect(screen, (0, 0, 0, 150), (5, SCREEN_HEIGHT - 80, 200, 75), border_radius=10)
+        pygame.draw.rect(screen, (30, 30, 30), (5, SCREEN_HEIGHT - 80, 200, 75), border_radius=10)
         draw_text(f"Score: {game_points}", FONT, WHITE, 15, SCREEN_HEIGHT - 75)
         ammo_color = RED if laser_ammo <= 5 else GREEN
         draw_text(f"Ammo: {laser_ammo}/{max_ammo}", SMALL_FONT, ammo_color, 15, SCREEN_HEIGHT - 45)
