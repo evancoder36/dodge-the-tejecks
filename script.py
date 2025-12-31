@@ -1288,6 +1288,10 @@ async def boss_game_loop():
             fires.pop(0)
         while len(enemies) > 30:
             enemies.pop(0)
+        while len(lasers) > 20:
+            lasers.pop(0)
+        while len(explosions) > 10:
+            explosions.pop(0)
 
         # Dark red tinted background for boss fight
         for y in range(0, SCREEN_HEIGHT, 4):
