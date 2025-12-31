@@ -24,13 +24,16 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.12'
 
-      - name: Install pygbag
-        run: pip install pygbag
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install pygbag pygame
 
       - name: Build with Pygbag
-        run: pygbag --build .
+        run: |
+          python -m pygbag --build ${{ github.workspace }}
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
