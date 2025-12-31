@@ -155,14 +155,17 @@ class Boss:
         rotated = pygame.transform.rotate(self.image, self.angle)
         rect = rotated.get_rect(center=(self.x, self.y))
 
-        # Flash red when hit
+        # Draw boss
+        surface.blit(rotated, rect)
+
+        # Flash effect when hit (draw red overlay)
         if self.hit_flash > 0:
-            # Create a red tinted surface
-            flash_surface = rotated.copy()
-            flash_surface.fill((255, 0, 0, 100), special_flags=pygame.BLEND_RGBA_MULT)
-            surface.blit(flash_surface, rect)
-        else:
-            surface.blit(rotated, rect)
+            # Draw a semi-transparent red circle overlay
+            flash_alpha = min(150, self.hit_flash * 15)
+            flash_surf = pygame.Surface((self.size + 20, self.size + 20), pygame.SRCALPHA)
+            pygame.draw.circle(flash_surf, (255, 0, 0, flash_alpha),
+                             (self.size // 2 + 10, self.size // 2 + 10), self.size // 2 + 5)
+            surface.blit(flash_surf, (self.x - self.size // 2 - 10, self.y - self.size // 2 - 10))
 
         # Draw health bar
         bar_width = 200
