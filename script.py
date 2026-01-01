@@ -1083,7 +1083,8 @@ async def game_loop(difficulty, level_name="Easy"):
     explosions = []
 
     # Power-up states
-    shield_active = 0
+    shields = 0  # Lives system: 0-5 shields (permanent until hit)
+    max_shields = 5
     speed_boost_active = 0
     slowmo_active = 0
     magnet_active = 0
@@ -1127,9 +1128,7 @@ async def game_loop(difficulty, level_name="Easy"):
         # Create offset surface for shake effect
         draw_background(screen, True)
 
-        # Update power-up timers
-        if shield_active > 0:
-            shield_active -= 1
+        # Update power-up timers (shields are permanent lives, not timed)
         if speed_boost_active > 0:
             speed_boost_active -= 1
             player_speed = base_player_speed * 1.5
@@ -1166,13 +1165,12 @@ async def game_loop(difficulty, level_name="Easy"):
         player_draw_y = player_y + bob_offset + shake_y
         screen.blit(player_image, (player_draw_x, player_draw_y))
 
-        # Draw shield effect
-        if shield_active > 0:
-            shield_alpha = 150 + int(50 * math.sin(pygame.time.get_ticks() / 100))
+        # Draw shield effect (permanent shield aura when shields > 0)
+        if shields > 0:
             pygame.draw.circle(screen, CYAN, (int(player_x + 25), int(player_y + 25 + bob_offset)), 35, 3)
-            if shield_active < 60:  # Flashing when about to expire
-                if shield_active % 10 < 5:
-                    pygame.draw.circle(screen, CYAN, (int(player_x + 25), int(player_y + 25 + bob_offset)), 38, 2)
+            # Pulsing effect
+            pulse = int(5 * math.sin(pygame.time.get_ticks() / 150))
+            pygame.draw.circle(screen, CYAN, (int(player_x + 25), int(player_y + 25 + bob_offset)), 38 + pulse, 2)
 
         # Update and draw enemies (random characters with random sizes)
         for enemy in enemies[:]:
@@ -1284,7 +1282,8 @@ async def game_loop(difficulty, level_name="Easy"):
                     for _ in range(10):
                         particles.append(Particle(power.x, power.y, YELLOW))
                 elif power.type == 'shield':
-                    shield_active = PowerUp.TYPES['shield']['duration']
+                    if shields < max_shields:
+                        shields += 1  # Add a shield (life), max 5
                     for _ in range(15):
                         particles.append(Particle(power.x, power.y, CYAN))
                 elif power.type == 'speed':
@@ -1331,16 +1330,16 @@ async def game_loop(difficulty, level_name="Easy"):
         player_rect = pygame.Rect(player_x + 5, player_y + 5, 40, 40)  # Slightly smaller hitbox
         for enemy in enemies[:]:
             if player_rect.colliderect(enemy.get_rect()):
-                if shield_active > 0:
-                    # Shield blocks the hit
-                    shield_active = 0
+                if shields > 0:
+                    # Shield blocks the hit - lose 1 life
+                    shields -= 1
                     enemies.remove(enemy)
                     trigger_screen_shake(5, 5)
                     play_sound(sound_hit)
                     for _ in range(20):
                         particles.append(Particle(enemy.x, enemy.y, CYAN))
                 else:
-                    # Game over
+                    # No shields left - Game over
                     play_sound(sound_hit)
                     trigger_screen_shake(15, 20)
 
@@ -1381,13 +1380,21 @@ async def game_loop(difficulty, level_name="Easy"):
         # Destroyed counter
         draw_text(f"Destroyed: {enemies_destroyed}", SMALL_FONT, ORANGE, SCREEN_WIDTH - 150, SCREEN_HEIGHT - 30)
 
+        # Shield/Lives display (top left area)
+        lives_x = 10
+        lives_y = 80
+        draw_text(f"Lives: {shields}/{max_shields}", FONT, CYAN if shields > 0 else RED, lives_x, lives_y)
+        # Draw shield icons
+        for i in range(max_shields):
+            icon_x = lives_x + 120 + i * 25
+            if i < shields:
+                pygame.draw.circle(screen, CYAN, (icon_x, lives_y + 12), 10)
+            else:
+                pygame.draw.circle(screen, (80, 80, 80), (icon_x, lives_y + 12), 10, 2)
+
         # Power-up status indicators
         status_x = SCREEN_WIDTH - 120
-        status_y = 10
-        if shield_active > 0:
-            pygame.draw.rect(screen, CYAN, (status_x, status_y, 110, 25), border_radius=5)
-            draw_text(f"Shield: {shield_active // 60 + 1}s", SMALL_FONT, BLACK, status_x + 5, status_y + 3)
-            status_y += 30
+        status_y = 60  # Moved down to avoid pause button
         if speed_boost_active > 0:
             pygame.draw.rect(screen, GREEN, (status_x, status_y, 110, 25), border_radius=5)
             draw_text(f"Speed: {speed_boost_active // 60 + 1}s", SMALL_FONT, BLACK, status_x + 5, status_y + 3)
@@ -1551,7 +1558,8 @@ async def boss_game_loop():
     boss = Boss()
 
     # Player states
-    shield_active = 0
+    shields = 0  # Lives system: 0-5 shields
+    max_shields = 5
     speed_boost_active = 0
     rapid_fire_active = 0
     double_shot_active = 0
@@ -1600,9 +1608,7 @@ async def boss_game_loop():
             color = (int(80 + 40 * ratio), int(20 + 20 * ratio), int(40 + 30 * ratio))
             pygame.draw.rect(screen, color, (0, y, SCREEN_WIDTH, 4))
 
-        # Update power-up timers
-        if shield_active > 0:
-            shield_active -= 1
+        # Update power-up timers (shields are permanent lives, not timed)
         if speed_boost_active > 0:
             speed_boost_active -= 1
         if rapid_fire_active > 0:
@@ -1623,9 +1629,11 @@ async def boss_game_loop():
         player_image = pygame.transform.scale(player_image, (50, 50))
         screen.blit(player_image, (player_x + shake_x, player_y + bob_offset + shake_y))
 
-        # Draw shield effect
-        if shield_active > 0:
+        # Draw shield effect (permanent shield aura when shields > 0)
+        if shields > 0:
             pygame.draw.circle(screen, CYAN, (int(player_x + 25), int(player_y + 25 + bob_offset)), 35, 3)
+            pulse = int(5 * math.sin(pygame.time.get_ticks() / 150))
+            pygame.draw.circle(screen, CYAN, (int(player_x + 25), int(player_y + 25 + bob_offset)), 38 + pulse, 2)
 
         # Update and draw boss
         boss.update()
@@ -1658,15 +1666,16 @@ async def boss_game_loop():
             # Check fire collision with player
             player_rect = pygame.Rect(player_x + 5, player_y + 5, 40, 40)
             if player_rect.colliderect(fire.get_rect()):
-                if shield_active > 0:
-                    shield_active = 0
+                if shields > 0:
+                    # Shield blocks the hit - lose 1 life
+                    shields -= 1
                     fires.remove(fire)
                     trigger_screen_shake(5, 5)
                     play_sound(sound_hit)
                     for _ in range(15):
                         particles.append(Particle(fire.x, fire.y, CYAN))
                 else:
-                    # Game over
+                    # No shields left - Game over
                     play_sound(sound_hit)
                     trigger_screen_shake(15, 20)
                     for _ in range(30):
@@ -1750,7 +1759,8 @@ async def boss_game_loop():
                     play_sound(sound_powerup)
                     # Apply power-up effect
                     if enemy.type == 'shield':
-                        shield_active = 300
+                        if shields < max_shields:
+                            shields += 1  # Add a shield (life), max 5
                     elif enemy.type == 'speed':
                         speed_boost_active = 300
                     elif enemy.type == 'rapid':
@@ -1761,12 +1771,14 @@ async def boss_game_loop():
                         laser_ammo = min(max_ammo, laser_ammo + 10)
                     for _ in range(10):
                         particles.append(Particle(enemy.x, enemy.y, CYAN))
-                elif shield_active > 0:
-                    shield_active = 0
+                elif shields > 0:
+                    # Shield blocks the hit - lose 1 life
+                    shields -= 1
                     enemies.remove(enemy)
                     trigger_screen_shake(5, 5)
                     play_sound(sound_hit)
                 else:
+                    # No shields left - Game over
                     play_sound(sound_hit)
                     trigger_screen_shake(15, 20)
                     for _ in range(30):
@@ -1810,11 +1822,17 @@ async def boss_game_loop():
         ammo_color = RED if laser_ammo <= 5 else GREEN
         draw_text(f"Ammo: {laser_ammo}/{max_ammo}", SMALL_FONT, ammo_color, 15, SCREEN_HEIGHT - 45)
 
+        # Lives/Shields display (top left)
+        draw_text(f"Lives: {shields}/{max_shields}", FONT, CYAN if shields > 0 else RED, 10, 50)
+        for i in range(max_shields):
+            icon_x = 130 + i * 22
+            if i < shields:
+                pygame.draw.circle(screen, CYAN, (icon_x, 62), 8)
+            else:
+                pygame.draw.circle(screen, (80, 80, 80), (icon_x, 62), 8, 2)
+
         # Power-up indicators
         status_y = SCREEN_HEIGHT - 75
-        if shield_active > 0:
-            draw_text(f"Shield: {shield_active // 60 + 1}s", SMALL_FONT, CYAN, 120, status_y)
-            status_y += 20
         if rapid_fire_active > 0:
             draw_text(f"Rapid!", SMALL_FONT, (255, 100, 100), 120, status_y)
 
