@@ -551,6 +551,139 @@ def draw_text_centered(text, font, color, y):
     x = (SCREEN_WIDTH - render.get_width()) // 2
     screen.blit(render, (x, y))
 
+# Touch control button definitions
+TOUCH_BUTTON_SIZE = 60
+TOUCH_BUTTONS = {
+    "left": pygame.Rect(20, SCREEN_HEIGHT - 80, TOUCH_BUTTON_SIZE, TOUCH_BUTTON_SIZE),
+    "right": pygame.Rect(90, SCREEN_HEIGHT - 80, TOUCH_BUTTON_SIZE, TOUCH_BUTTON_SIZE),
+    "shoot": pygame.Rect(SCREEN_WIDTH - 80, SCREEN_HEIGHT - 80, TOUCH_BUTTON_SIZE, TOUCH_BUTTON_SIZE),
+    "pause": pygame.Rect(SCREEN_WIDTH - 50, 10, 40, 40),
+}
+
+def draw_touch_controls(surface):
+    """Draw touch control buttons for mobile play."""
+    # Left button
+    pygame.draw.rect(surface, (100, 100, 100), TOUCH_BUTTONS["left"], border_radius=10)
+    pygame.draw.polygon(surface, WHITE, [
+        (TOUCH_BUTTONS["left"].x + 40, TOUCH_BUTTONS["left"].y + 15),
+        (TOUCH_BUTTONS["left"].x + 40, TOUCH_BUTTONS["left"].y + 45),
+        (TOUCH_BUTTONS["left"].x + 15, TOUCH_BUTTONS["left"].y + 30),
+    ])
+
+    # Right button
+    pygame.draw.rect(surface, (100, 100, 100), TOUCH_BUTTONS["right"], border_radius=10)
+    pygame.draw.polygon(surface, WHITE, [
+        (TOUCH_BUTTONS["right"].x + 20, TOUCH_BUTTONS["right"].y + 15),
+        (TOUCH_BUTTONS["right"].x + 20, TOUCH_BUTTONS["right"].y + 45),
+        (TOUCH_BUTTONS["right"].x + 45, TOUCH_BUTTONS["right"].y + 30),
+    ])
+
+    # Shoot button
+    pygame.draw.rect(surface, (200, 50, 50), TOUCH_BUTTONS["shoot"], border_radius=10)
+    pygame.draw.circle(surface, WHITE, TOUCH_BUTTONS["shoot"].center, 15, 3)
+    pygame.draw.circle(surface, WHITE, TOUCH_BUTTONS["shoot"].center, 5)
+
+    # Pause button
+    pygame.draw.rect(surface, (80, 80, 80), TOUCH_BUTTONS["pause"], border_radius=8)
+    pause_x = TOUCH_BUTTONS["pause"].x + 12
+    pause_y = TOUCH_BUTTONS["pause"].y + 10
+    pygame.draw.rect(surface, WHITE, (pause_x, pause_y, 6, 20))
+    pygame.draw.rect(surface, WHITE, (pause_x + 10, pause_y, 6, 20))
+
+def get_touch_input():
+    """Get current touch/mouse button states."""
+    touch_state = {"left": False, "right": False, "shoot": False, "pause": False}
+
+    # Check mouse button held (for continuous movement)
+    mouse_pressed = pygame.mouse.get_pressed()[0]
+    if mouse_pressed:
+        mouse_pos = pygame.mouse.get_pos()
+        for button_name, button_rect in TOUCH_BUTTONS.items():
+            if button_rect.collidepoint(mouse_pos):
+                touch_state[button_name] = True
+
+    return touch_state
+
+async def pause_menu(game_points, level_name="Easy"):
+    """Display pause menu."""
+    global points, best_scores
+
+    selected = 0
+    options = ["Resume", "Quit to Menu"]
+
+    while True:
+        # Draw semi-transparent overlay
+        overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 150))
+        screen.blit(overlay, (0, 0))
+
+        # Draw pause box
+        box_width = 250
+        box_height = 200
+        box_x = (SCREEN_WIDTH - box_width) // 2
+        box_y = (SCREEN_HEIGHT - box_height) // 2
+        pygame.draw.rect(screen, (50, 50, 70), (box_x, box_y, box_width, box_height), border_radius=15)
+        pygame.draw.rect(screen, WHITE, (box_x, box_y, box_width, box_height), 3, border_radius=15)
+
+        draw_text_centered("PAUSED", BIG_FONT, WHITE, box_y + 20)
+        draw_text_centered(f"Score: {game_points}", FONT, YELLOW, box_y + 70)
+
+        # Draw options
+        for i, option in enumerate(options):
+            y_pos = box_y + 110 + i * 40
+            color = GREEN if i == selected else WHITE
+            if i == selected:
+                pygame.draw.rect(screen, (80, 80, 100), (box_x + 20, y_pos - 5, box_width - 40, 35), border_radius=8)
+            draw_text_centered(option, FONT, color, y_pos)
+
+        pygame.display.flip()
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                points += game_points
+                if game_points > best_scores.get(level_name, 0):
+                    best_scores[level_name] = game_points
+                save_progress()
+                pygame.quit()
+                sys.exit()
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_UP:
+                    selected = (selected - 1) % len(options)
+                    play_sound(sound_collect)
+                elif event.key == pygame.K_DOWN:
+                    selected = (selected + 1) % len(options)
+                    play_sound(sound_collect)
+                elif event.key == pygame.K_RETURN:
+                    play_sound(sound_powerup)
+                    if selected == 0:  # Resume
+                        return "resume"
+                    else:  # Quit
+                        points += game_points
+                        if game_points > best_scores.get(level_name, 0):
+                            best_scores[level_name] = game_points
+                        save_progress()
+                        return "quit"
+                elif event.key == pygame.K_ESCAPE:
+                    return "resume"
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                mouse_pos = pygame.mouse.get_pos()
+                for i, option in enumerate(options):
+                    y_pos = box_y + 110 + i * 40
+                    option_rect = pygame.Rect(box_x + 20, y_pos - 5, box_width - 40, 35)
+                    if option_rect.collidepoint(mouse_pos):
+                        play_sound(sound_powerup)
+                        if i == 0:  # Resume
+                            return "resume"
+                        else:  # Quit
+                            points += game_points
+                            if game_points > best_scores.get(level_name, 0):
+                                best_scores[level_name] = game_points
+                            save_progress()
+                            return "quit"
+
+        await asyncio.sleep(0)
+        clock.tick(60)
+
 def scale_position(x, y):
     return x * SCREEN_WIDTH // 360, y * SCREEN_HEIGHT // 640
 
@@ -1275,11 +1408,13 @@ async def game_loop(difficulty, level_name="Easy"):
             pygame.draw.rect(screen, (100, 100, 255), (status_x, status_y, 110, 25), border_radius=5)
             draw_text(f"Double: {double_shot_active // 60 + 1}s", SMALL_FONT, WHITE, status_x + 5, status_y + 3)
 
-        # Controls hint
-        draw_text("SPACE: Shoot | Arrows: Move", SMALL_FONT, (150, 150, 150), 10, SCREEN_HEIGHT - 25)
+        # Draw touch controls for mobile
+        draw_touch_controls(screen)
 
         pygame.display.flip()
 
+        # Handle pause button click
+        pause_clicked = False
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 points += game_points
@@ -1291,18 +1426,29 @@ async def game_loop(difficulty, level_name="Easy"):
                 sys.exit()
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
-                    # Pause functionality could go here
-                    pass
+                    pause_clicked = True
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                if TOUCH_BUTTONS["pause"].collidepoint(event.pos):
+                    pause_clicked = True
 
-        # Handle player movement and shooting
+        # Handle pause
+        if pause_clicked:
+            result = await pause_menu(game_points, level_name)
+            if result == "quit":
+                return
+
+        # Get touch input
+        touch = get_touch_input()
+
+        # Handle player movement and shooting (keyboard + touch)
         keys = pygame.key.get_pressed()
-        if keys[pygame.K_LEFT] and player_x > 0:
+        if (keys[pygame.K_LEFT] or touch["left"]) and player_x > 0:
             player_x -= player_speed
-        if keys[pygame.K_RIGHT] and player_x < SCREEN_WIDTH - 50:
+        if (keys[pygame.K_RIGHT] or touch["right"]) and player_x < SCREEN_WIDTH - 50:
             player_x += player_speed
 
-        # Shooting lasers with SPACE
-        if keys[pygame.K_SPACE] and laser_cooldown <= 0 and laser_ammo > 0:
+        # Shooting lasers with SPACE or touch
+        if (keys[pygame.K_SPACE] or touch["shoot"]) and laser_cooldown <= 0 and laser_ammo > 0:
             play_sound(sound_laser)
             laser_ammo -= 1
 
@@ -1672,11 +1818,13 @@ async def boss_game_loop():
         if rapid_fire_active > 0:
             draw_text(f"Rapid!", SMALL_FONT, (255, 100, 100), 120, status_y)
 
-        draw_text("SPACE: Shoot | Arrows: Move", SMALL_FONT, (150, 150, 150), 10, SCREEN_HEIGHT - 20)
+        # Draw touch controls for mobile
+        draw_touch_controls(screen)
 
         pygame.display.flip()
 
         # Event handling
+        pause_clicked = False
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 points += game_points
@@ -1686,16 +1834,31 @@ async def boss_game_loop():
                 save_progress()
                 pygame.quit()
                 sys.exit()
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    pause_clicked = True
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                if TOUCH_BUTTONS["pause"].collidepoint(event.pos):
+                    pause_clicked = True
 
-        # Movement
+        # Handle pause
+        if pause_clicked:
+            result = await pause_menu(game_points, "BOSS MODE")
+            if result == "quit":
+                return
+
+        # Get touch input
+        touch = get_touch_input()
+
+        # Movement (keyboard + touch)
         keys = pygame.key.get_pressed()
-        if keys[pygame.K_LEFT] and player_x > 0:
+        if (keys[pygame.K_LEFT] or touch["left"]) and player_x > 0:
             player_x -= current_speed
-        if keys[pygame.K_RIGHT] and player_x < SCREEN_WIDTH - 50:
+        if (keys[pygame.K_RIGHT] or touch["right"]) and player_x < SCREEN_WIDTH - 50:
             player_x += current_speed
 
-        # Shooting
-        if keys[pygame.K_SPACE] and laser_cooldown <= 0 and laser_ammo > 0:
+        # Shooting (keyboard + touch)
+        if (keys[pygame.K_SPACE] or touch["shoot"]) and laser_cooldown <= 0 and laser_ammo > 0:
             play_sound(sound_laser)
             laser_ammo -= 1
             laser_cooldown = base_cooldown // 3 if rapid_fire_active > 0 else base_cooldown
