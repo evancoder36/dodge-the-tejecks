@@ -37,14 +37,14 @@ pygame.display.set_caption("Dodge the Tejecks")
 points = 0
 high_score = 0
 shop_items = {
-    "EMDRTejeck": {"cost": 0, "image": pygame.image.load("babytejeck.jpeg"), "purchased": True},
-    "BabyTejeck": {"cost": 0, "image": pygame.image.load("babytejeck.jpeg"), "purchased": False},
-    "Amelia": {"cost": 0, "image": pygame.image.load("amelia.jpeg"), "purchased": False},
-    "Evan": {"cost": 0, "image": pygame.image.load("me.jpeg"), "purchased": False},
-    "Mei": {"cost": 0, "image": pygame.image.load("babes.jpeg"), "purchased": False},
-    "Alv": {"cost": 0, "image": pygame.image.load("alvin.jpeg"), "purchased": False},
+    "EMDR Tejeck": {"cost": 0, "image": pygame.image.load("emdr_tejeck.png"), "purchased": True},
+    "BabyTejeck": {"cost": 200, "image": pygame.image.load("babytejeck.jpeg"), "purchased": False},
+    "Amelia": {"cost": 250, "image": pygame.image.load("amelia.jpeg"), "purchased": False},
+    "Evan": {"cost": 300, "image": pygame.image.load("me.jpeg"), "purchased": False},
+    "Mei": {"cost": 350, "image": pygame.image.load("babes.jpeg"), "purchased": False},
+    "Alv": {"cost": 400, "image": pygame.image.load("alvin.jpeg"), "purchased": False},
 }
-equipped_item = "EMDRTejeck"
+equipped_item = "EMDR Tejeck"
 selected_item = 0
 
 # Load all enemy images
