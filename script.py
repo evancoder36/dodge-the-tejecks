@@ -843,9 +843,17 @@ async def shop():
     """Shop screen."""
     global points, equipped_item, selected_item
 
+    # Error message for insufficient points
+    error_message = ""
+    error_timer = 0
+
     while True:
         update_background()
         draw_background(screen, False)
+
+        # Decrement error timer
+        if error_timer > 0:
+            error_timer -= 1
 
         draw_text_centered("Shop", BIG_FONT, BLACK, 30)
         draw_text(f"Points: {points}", FONT, GREEN, 10, 80)
@@ -874,6 +882,17 @@ async def shop():
 
             y_offset += 65
 
+        # Display error message popup if active
+        if error_timer > 0 and error_message:
+            # Draw popup box
+            popup_width = 280
+            popup_height = 60
+            popup_x = (SCREEN_WIDTH - popup_width) // 2
+            popup_y = SCREEN_HEIGHT // 2 - popup_height // 2
+            pygame.draw.rect(screen, (50, 50, 50), (popup_x, popup_y, popup_width, popup_height), border_radius=10)
+            pygame.draw.rect(screen, RED, (popup_x, popup_y, popup_width, popup_height), 3, border_radius=10)
+            draw_text_centered(error_message, FONT, RED, popup_y + 18)
+
         draw_text_centered("UP/DOWN to select, ENTER to buy/equip, B to return", SMALL_FONT, BLACK, SCREEN_HEIGHT - 40)
         pygame.display.flip()
 
@@ -892,10 +911,17 @@ async def shop():
                 elif event.key == pygame.K_RETURN:
                     selected_item_name = list(shop_items.keys())[selected_item]
                     selected_item_data = shop_items[selected_item_name]
-                    if not selected_item_data["purchased"] and points >= selected_item_data["cost"]:
-                        points -= selected_item_data["cost"]
-                        selected_item_data["purchased"] = True
-                        play_sound(sound_powerup)
+                    if not selected_item_data["purchased"]:
+                        if points >= selected_item_data["cost"]:
+                            points -= selected_item_data["cost"]
+                            selected_item_data["purchased"] = True
+                            play_sound(sound_powerup)
+                        else:
+                            # Not enough points - show error
+                            needed = selected_item_data["cost"] - points
+                            error_message = f"Not Enough Money! Need {needed} More"
+                            error_timer = 120  # Show for 2 seconds
+                            play_sound(sound_hit)
                     if selected_item_data["purchased"]:
                         equipped_item = selected_item_name
                         play_sound(sound_collect)
