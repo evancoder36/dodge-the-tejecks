@@ -5,6 +5,14 @@ import json
 import asyncio
 import math
 
+# Check if running in browser (Pygbag)
+try:
+    from platform import window as browser_window
+    IS_BROWSER = True
+except ImportError:
+    browser_window = None
+    IS_BROWSER = False
+
 # Initialize Pygame
 pygame.init()
 pygame.mixer.init()
@@ -511,7 +519,7 @@ def is_level_unlocked(level_name):
     return best_scores[prev_level] >= required_score
 
 def save_progress():
-    """Save current user's progress to leaderboard file."""
+    """Save current user's progress to leaderboard (localStorage in browser, file on desktop)."""
     global high_score, leaderboard_data
 
     if not current_username:
@@ -527,18 +535,36 @@ def save_progress():
     }
 
     try:
-        with open("leaderboard.json", "w") as file:
-            json.dump(leaderboard_data, file, indent=2)
-    except IOError as e:
+        json_data = json.dumps(leaderboard_data)
+        if IS_BROWSER and browser_window:
+            # Save to browser localStorage
+            browser_window.localStorage.setItem("dodge_tejecks_leaderboard", json_data)
+            browser_window.localStorage.setItem("dodge_tejecks_lastuser", current_username)
+        else:
+            # Save to file (desktop)
+            with open("leaderboard.json", "w") as file:
+                file.write(json_data)
+            with open("last_user.txt", "w") as f:
+                f.write(current_username)
+    except Exception as e:
         print(f"Failed to save progress: {e}")
 
 def load_leaderboard():
-    """Load all users' data from leaderboard file."""
+    """Load all users' data from leaderboard (localStorage in browser, file on desktop)."""
     global leaderboard_data
     try:
-        with open("leaderboard.json", "r") as file:
-            leaderboard_data = json.load(file)
-    except (FileNotFoundError, json.JSONDecodeError):
+        if IS_BROWSER and browser_window:
+            # Load from browser localStorage
+            data = browser_window.localStorage.getItem("dodge_tejecks_leaderboard")
+            if data:
+                leaderboard_data = json.loads(data)
+            else:
+                leaderboard_data = {}
+        else:
+            # Load from file (desktop)
+            with open("leaderboard.json", "r") as file:
+                leaderboard_data = json.load(file)
+    except (FileNotFoundError, json.JSONDecodeError, Exception):
         leaderboard_data = {}
 
 def load_user_progress(username):
@@ -646,10 +672,15 @@ async def username_entry_screen():
 
     # Check if there's a saved last user
     try:
-        with open("last_user.txt", "r") as f:
-            last_user = f.read().strip()
+        if IS_BROWSER and browser_window:
+            last_user = browser_window.localStorage.getItem("dodge_tejecks_lastuser")
             if last_user and last_user in leaderboard_data:
                 username = last_user
+        else:
+            with open("last_user.txt", "r") as f:
+                last_user = f.read().strip()
+                if last_user and last_user in leaderboard_data:
+                    username = last_user
     except:
         pass
 
@@ -704,13 +735,8 @@ async def username_entry_screen():
                 if event.key == pygame.K_RETURN:
                     if len(username.strip()) >= 2:
                         current_username = username.strip()
-                        # Save last user for quick login
-                        try:
-                            with open("last_user.txt", "w") as f:
-                                f.write(current_username)
-                        except:
-                            pass
                         load_user_progress(current_username)
+                        save_progress()  # Save immediately to store last user
                         play_sound(sound_powerup)
                         return
                     else:
