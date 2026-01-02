@@ -36,6 +36,9 @@ pygame.display.set_caption("Dodge the Tejecks")
 # Game variables
 points = 0
 high_score = 0
+current_username = ""  # Current player's username
+current_level = "Easy"  # Track current level being played
+leaderboard_data = {}  # All players' data
 shop_items = {
     "EMDR Tejeck": {"cost": 0, "image": pygame.image.load("emdr_tejeck.png"), "purchased": True},
     "BabyTejeck": {"cost": 200, "image": pygame.image.load("babytejeck.jpeg"), "purchased": False},
@@ -508,39 +511,73 @@ def is_level_unlocked(level_name):
     return best_scores[prev_level] >= required_score
 
 def save_progress():
-    global high_score
-    progress = {
+    """Save current user's progress to leaderboard file."""
+    global high_score, leaderboard_data
+
+    if not current_username:
+        return  # Don't save if no username
+
+    # Update leaderboard data for current user
+    leaderboard_data[current_username] = {
         "points": points,
         "high_score": high_score,
         "purchased_items": {item: data["purchased"] for item, data in shop_items.items()},
-        "best_scores": best_scores,
+        "best_scores": best_scores.copy(),
+        "current_level": current_level,
     }
+
     try:
-        with open("save_progress.json", "w") as file:
-            json.dump(progress, file)
+        with open("leaderboard.json", "w") as file:
+            json.dump(leaderboard_data, file, indent=2)
     except IOError as e:
         print(f"Failed to save progress: {e}")
 
-def load_progress():
-    global points, high_score, best_scores
+def load_leaderboard():
+    """Load all users' data from leaderboard file."""
+    global leaderboard_data
     try:
-        with open("save_progress.json", "r") as file:
-            progress = json.load(file)
-            points = progress.get("points", 0)
-            high_score = progress.get("high_score", 0)
-            for item in shop_items:
-                shop_items[item]["purchased"] = progress["purchased_items"].get(item, False)
-            # Load best scores
-            saved_scores = progress.get("best_scores", {})
-            for level in best_scores:
-                best_scores[level] = saved_scores.get(level, 0)
+        with open("leaderboard.json", "r") as file:
+            leaderboard_data = json.load(file)
     except (FileNotFoundError, json.JSONDecodeError):
+        leaderboard_data = {}
+
+def load_user_progress(username):
+    """Load a specific user's progress from leaderboard data."""
+    global points, high_score, best_scores, current_username
+
+    current_username = username
+
+    if username in leaderboard_data:
+        user_data = leaderboard_data[username]
+        points = user_data.get("points", 0)
+        high_score = user_data.get("high_score", 0)
+
+        # Load purchased items
+        purchased = user_data.get("purchased_items", {})
+        for item in shop_items:
+            shop_items[item]["purchased"] = purchased.get(item, item == "EMDR Tejeck")
+
+        # Load best scores
+        saved_scores = user_data.get("best_scores", {})
+        for level in best_scores:
+            best_scores[level] = saved_scores.get(level, 0)
+    else:
+        # New user - reset to defaults
         points = 0
         high_score = 0
         for item in shop_items:
-            shop_items[item]["purchased"] = False
+            shop_items[item]["purchased"] = (item == "EMDR Tejeck")  # EMDR is free/default
         for level in best_scores:
             best_scores[level] = 0
+
+def get_sorted_leaderboard():
+    """Get leaderboard sorted by total points (descending)."""
+    sorted_users = sorted(
+        leaderboard_data.items(),
+        key=lambda x: x[1].get("points", 0),
+        reverse=True
+    )
+    return sorted_users
 
 def draw_text(text, font, color, x, y):
     render = font.render(text, True, color)
@@ -597,6 +634,218 @@ def get_touch_input():
                 touch_state[button_name] = True
 
     return touch_state
+
+async def username_entry_screen():
+    """Screen for entering username at game start."""
+    global current_username
+
+    username = ""
+    max_length = 15
+    cursor_blink = 0
+    error_message = ""
+
+    # Check if there's a saved last user
+    try:
+        with open("last_user.txt", "r") as f:
+            last_user = f.read().strip()
+            if last_user and last_user in leaderboard_data:
+                username = last_user
+    except:
+        pass
+
+    while True:
+        cursor_blink += 1
+        update_background()
+        draw_background(screen, False)
+
+        # Title
+        draw_text_centered("DODGE THE TEJECKS", BIG_FONT, BLACK, 50)
+        draw_text_centered("Enter Your Name", FONT, BLUE, 120)
+
+        # Username input box
+        box_width = 300
+        box_height = 50
+        box_x = (SCREEN_WIDTH - box_width) // 2
+        box_y = 180
+
+        pygame.draw.rect(screen, WHITE, (box_x, box_y, box_width, box_height), border_radius=10)
+        pygame.draw.rect(screen, BLUE, (box_x, box_y, box_width, box_height), 3, border_radius=10)
+
+        # Display username with blinking cursor
+        cursor = "|" if (cursor_blink // 30) % 2 == 0 else ""
+        display_text = username + cursor
+        text_surface = FONT.render(display_text, True, BLACK)
+        text_x = box_x + 15
+        text_y = box_y + (box_height - text_surface.get_height()) // 2
+        screen.blit(text_surface, (text_x, text_y))
+
+        # Instructions
+        draw_text_centered("Type your name and press ENTER", SMALL_FONT, BLACK, 260)
+        draw_text_centered("Your progress will be saved automatically!", SMALL_FONT, GREEN, 290)
+
+        # Error message
+        if error_message:
+            draw_text_centered(error_message, FONT, RED, 330)
+
+        # Show existing players hint
+        if leaderboard_data:
+            draw_text_centered(f"({len(leaderboard_data)} players registered)", SMALL_FONT, PURPLE, 370)
+
+        # Show keyboard hint for mobile
+        draw_text_centered("Tap here to type on mobile", SMALL_FONT, (100, 100, 100), SCREEN_HEIGHT - 80)
+
+        pygame.display.flip()
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_RETURN:
+                    if len(username.strip()) >= 2:
+                        current_username = username.strip()
+                        # Save last user for quick login
+                        try:
+                            with open("last_user.txt", "w") as f:
+                                f.write(current_username)
+                        except:
+                            pass
+                        load_user_progress(current_username)
+                        play_sound(sound_powerup)
+                        return
+                    else:
+                        error_message = "Name must be at least 2 characters!"
+                        play_sound(sound_hit)
+                elif event.key == pygame.K_BACKSPACE:
+                    username = username[:-1]
+                    error_message = ""
+                elif event.key == pygame.K_ESCAPE:
+                    pygame.quit()
+                    sys.exit()
+                elif len(username) < max_length:
+                    # Only allow alphanumeric and some special chars
+                    if event.unicode.isalnum() or event.unicode in " _-":
+                        username += event.unicode
+                        error_message = ""
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                # Clicking the input box area (for mobile keyboard trigger)
+                if box_x <= event.pos[0] <= box_x + box_width and box_y <= event.pos[1] <= box_y + box_height:
+                    pass  # Input box clicked
+
+        await asyncio.sleep(0)
+        clock.tick(60)
+
+async def leaderboard_screen():
+    """Display the live leaderboard showing all players."""
+    scroll_offset = 0
+    max_display = 10
+
+    while True:
+        update_background()
+        draw_background(screen, False)
+
+        # Title
+        draw_text_centered("LEADERBOARD", BIG_FONT, BLACK, 30)
+
+        # Current player info
+        pygame.draw.rect(screen, (220, 240, 255), (20, 80, SCREEN_WIDTH - 40, 45), border_radius=10)
+        pygame.draw.rect(screen, BLUE, (20, 80, SCREEN_WIDTH - 40, 45), 2, border_radius=10)
+        draw_text(f"You: {current_username}", FONT, BLUE, 35, 90)
+        draw_text(f"Points: {points}", FONT, GREEN, SCREEN_WIDTH - 180, 90)
+
+        # Leaderboard header
+        header_y = 140
+        pygame.draw.rect(screen, (50, 50, 70), (20, header_y, SCREEN_WIDTH - 40, 35), border_radius=5)
+        draw_text("Rank", SMALL_FONT, WHITE, 35, header_y + 8)
+        draw_text("Player", SMALL_FONT, WHITE, 100, header_y + 8)
+        draw_text("Points", SMALL_FONT, WHITE, 350, header_y + 8)
+        draw_text("Best Level", SMALL_FONT, WHITE, 480, header_y + 8)
+        draw_text("Playing", SMALL_FONT, WHITE, 620, header_y + 8)
+
+        # Get sorted leaderboard
+        sorted_lb = get_sorted_leaderboard()
+
+        # Display leaderboard entries
+        entry_y = header_y + 45
+        for i, (username, data) in enumerate(sorted_lb[scroll_offset:scroll_offset + max_display]):
+            rank = scroll_offset + i + 1
+            row_y = entry_y + i * 40
+
+            # Highlight current user
+            if username == current_username:
+                pygame.draw.rect(screen, (200, 255, 200), (20, row_y - 5, SCREEN_WIDTH - 40, 38), border_radius=5)
+            elif i % 2 == 0:
+                pygame.draw.rect(screen, (240, 240, 250), (20, row_y - 5, SCREEN_WIDTH - 40, 38), border_radius=5)
+
+            # Rank with medal for top 3
+            if rank == 1:
+                draw_text("🥇", FONT, YELLOW, 35, row_y)
+            elif rank == 2:
+                draw_text("🥈", FONT, (192, 192, 192), 35, row_y)
+            elif rank == 3:
+                draw_text("🥉", FONT, (205, 127, 50), 35, row_y)
+            else:
+                draw_text(f"#{rank}", SMALL_FONT, BLACK, 35, row_y + 3)
+
+            # Player name (truncate if too long)
+            display_name = username[:12] + "..." if len(username) > 12 else username
+            name_color = BLUE if username == current_username else BLACK
+            draw_text(display_name, FONT, name_color, 100, row_y)
+
+            # Points
+            user_points = data.get("points", 0)
+            draw_text(f"{user_points:,}", FONT, GREEN, 350, row_y)
+
+            # Find highest unlocked level
+            user_best_scores = data.get("best_scores", {})
+            levels = ["Easy", "Medium", "Hard", "Impossible", "God Mode", "Creator Mode", "BOSS MODE"]
+            highest_level = "Easy"
+            for level in levels:
+                if user_best_scores.get(level, 0) > 0:
+                    highest_level = level
+
+            # Shorten level name for display
+            level_short = {
+                "Easy": "Easy", "Medium": "Med", "Hard": "Hard",
+                "Impossible": "Imp", "God Mode": "God",
+                "Creator Mode": "Creator", "BOSS MODE": "BOSS"
+            }
+            level_color = PURPLE if highest_level in ["God Mode", "Creator Mode", "BOSS MODE"] else BLACK
+            draw_text(level_short.get(highest_level, highest_level), SMALL_FONT, level_color, 480, row_y + 3)
+
+            # Current level playing
+            current = data.get("current_level", "Easy")
+            draw_text(level_short.get(current, current), SMALL_FONT, ORANGE, 620, row_y + 3)
+
+        # Scroll indicators
+        if scroll_offset > 0:
+            draw_text_centered("▲ UP for more", SMALL_FONT, BLACK, header_y + 45 + max_display * 40 + 10)
+        if scroll_offset + max_display < len(sorted_lb):
+            draw_text_centered("▼ DOWN for more", SMALL_FONT, BLACK, header_y + 45 + max_display * 40 + 30)
+
+        # Footer
+        total_players = len(leaderboard_data)
+        draw_text_centered(f"Total Players: {total_players}", SMALL_FONT, PURPLE, SCREEN_HEIGHT - 70)
+        draw_text_centered("Press B to return", FONT, BLACK, SCREEN_HEIGHT - 40)
+
+        pygame.display.flip()
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                save_progress()
+                pygame.quit()
+                sys.exit()
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_b or event.key == pygame.K_ESCAPE:
+                    play_sound(sound_collect)
+                    return
+                elif event.key == pygame.K_UP:
+                    scroll_offset = max(0, scroll_offset - 1)
+                elif event.key == pygame.K_DOWN:
+                    scroll_offset = min(max(0, len(sorted_lb) - max_display), scroll_offset + 1)
+
+        await asyncio.sleep(0)
+        clock.tick(60)
 
 async def pause_menu(game_points, level_name="Easy"):
     """Display pause menu."""
@@ -686,7 +935,7 @@ def scale_size(width, height):
 
 # Menu button animation
 menu_hover = -1
-menu_animation = [0, 0, 0, 0, 0]
+menu_animation = [0, 0, 0, 0, 0, 0]  # Added one more for leaderboard
 
 async def main_menu():
     """Display the main menu."""
@@ -702,10 +951,14 @@ async def main_menu():
         title_y = 50 + math.sin(title_offset) * 5
         draw_text("Dodge the Tejecks", BIG_FONT, BLACK, *scale_position(60, title_y))
 
+        # Show current player
+        draw_text(f"Player: {current_username}", FONT, BLUE, 10, 100)
+        draw_text(f"Points: {points}", SMALL_FONT, GREEN, 10, 130)
+
         # Menu items with hover effect
-        menu_items = ["1. PLAY", "2. SHOP", "3. QUIT", "4. INSTRUCTIONS", "5. CHANGELOG"]
+        menu_items = ["1. PLAY", "2. SHOP", "3. LEADERBOARD", "4. INSTRUCTIONS", "5. CHANGELOG", "6. QUIT"]
         for i, item in enumerate(menu_items):
-            y_pos = 200 + i * 50
+            y_pos = 180 + i * 45
             # Animate menu items
             menu_animation[i] = min(1, menu_animation[i] + 0.1)
             offset = (1 - menu_animation[i]) * 50
@@ -729,13 +982,16 @@ async def main_menu():
                 elif event.key == pygame.K_2:
                     await shop()
                 elif event.key == pygame.K_3:
-                    save_progress()
-                    pygame.quit()
-                    sys.exit()
+                    load_leaderboard()  # Refresh leaderboard data
+                    await leaderboard_screen()
                 elif event.key == pygame.K_4:
                     await instructions_screen()
                 elif event.key == pygame.K_5:
                     await changelog_screen()
+                elif event.key == pygame.K_6:
+                    save_progress()
+                    pygame.quit()
+                    sys.exit()
 
         await asyncio.sleep(0)
         clock.tick(60)
@@ -1062,7 +1318,11 @@ async def shop():
 
 async def game_loop(difficulty, level_name="Easy"):
     """Main game loop with power-ups, lasers, and effects."""
-    global points, high_score, screen_shake, shake_intensity, best_scores
+    global points, high_score, screen_shake, shake_intensity, best_scores, current_level
+
+    # Track current level for leaderboard
+    current_level = level_name
+    save_progress()  # Save that we're playing this level
 
     game_points = 0
     player_x = SCREEN_WIDTH // 2 - 25
@@ -1543,7 +1803,11 @@ async def game_over(score, max_combo):
 
 async def boss_game_loop():
     """BOSS MODE - Fight the FINAL VIRTUAL EMDR TEJECK BOSS!"""
-    global points, high_score, screen_shake, shake_intensity, best_scores
+    global points, high_score, screen_shake, shake_intensity, best_scores, current_level
+
+    # Track current level for leaderboard
+    current_level = "BOSS MODE"
+    save_progress()  # Save that we're playing boss mode
 
     game_points = 0
     player_x = SCREEN_WIDTH // 2 - 25
@@ -1976,7 +2240,13 @@ async def victory_screen(score):
 
 async def main():
     """Main entry point for the game."""
-    load_progress()
+    # Load leaderboard data first
+    load_leaderboard()
+
+    # Show username entry screen
+    await username_entry_screen()
+
+    # Now user is logged in, show main menu
     await main_menu()
 
 if __name__ == "__main__":
