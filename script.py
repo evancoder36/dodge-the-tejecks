@@ -1380,17 +1380,24 @@ async def game_loop(difficulty, level_name="Easy"):
         # Destroyed counter
         draw_text(f"Destroyed: {enemies_destroyed}", SMALL_FONT, ORANGE, SCREEN_WIDTH - 150, SCREEN_HEIGHT - 30)
 
-        # Shield/Lives display (top left area)
-        lives_x = 10
-        lives_y = 80
-        draw_text(f"Lives: {shields}/{max_shields}", FONT, CYAN if shields > 0 else RED, lives_x, lives_y)
-        # Draw shield icons
+        # Shield/Lives display (prominent top center)
+        lives_y = 10
+        # Background box for lives
+        lives_box_width = 180
+        lives_box_x = (SCREEN_WIDTH - lives_box_width) // 2
+        pygame.draw.rect(screen, (30, 30, 50), (lives_box_x, lives_y - 5, lives_box_width, 40), border_radius=10)
+        pygame.draw.rect(screen, CYAN if shields > 0 else RED, (lives_box_x, lives_y - 5, lives_box_width, 40), 2, border_radius=10)
+
+        # Draw shield/heart icons
         for i in range(max_shields):
-            icon_x = lives_x + 120 + i * 25
+            icon_x = lives_box_x + 20 + i * 32
             if i < shields:
-                pygame.draw.circle(screen, CYAN, (icon_x, lives_y + 12), 10)
+                # Filled heart/shield icon
+                pygame.draw.circle(screen, CYAN, (icon_x, lives_y + 15), 12)
+                pygame.draw.circle(screen, WHITE, (icon_x, lives_y + 15), 8)
             else:
-                pygame.draw.circle(screen, (80, 80, 80), (icon_x, lives_y + 12), 10, 2)
+                # Empty heart/shield icon
+                pygame.draw.circle(screen, (80, 80, 80), (icon_x, lives_y + 15), 12, 2)
 
         # Power-up status indicators
         status_x = SCREEN_WIDTH - 120
@@ -1822,14 +1829,20 @@ async def boss_game_loop():
         ammo_color = RED if laser_ammo <= 5 else GREEN
         draw_text(f"Ammo: {laser_ammo}/{max_ammo}", SMALL_FONT, ammo_color, 15, SCREEN_HEIGHT - 45)
 
-        # Lives/Shields display (top left)
-        draw_text(f"Lives: {shields}/{max_shields}", FONT, CYAN if shields > 0 else RED, 10, 50)
+        # Lives/Shields display (bottom left, below score)
+        lives_y = SCREEN_HEIGHT - 35
+        lives_box_width = 180
+        lives_box_x = 220  # Next to score panel
+        pygame.draw.rect(screen, (30, 30, 50), (lives_box_x, lives_y - 10, lives_box_width, 35), border_radius=8)
+        pygame.draw.rect(screen, CYAN if shields > 0 else RED, (lives_box_x, lives_y - 10, lives_box_width, 35), 2, border_radius=8)
+
         for i in range(max_shields):
-            icon_x = 130 + i * 22
+            icon_x = lives_box_x + 20 + i * 32
             if i < shields:
-                pygame.draw.circle(screen, CYAN, (icon_x, 62), 8)
+                pygame.draw.circle(screen, CYAN, (icon_x, lives_y + 5), 10)
+                pygame.draw.circle(screen, WHITE, (icon_x, lives_y + 5), 6)
             else:
-                pygame.draw.circle(screen, (80, 80, 80), (icon_x, 62), 8, 2)
+                pygame.draw.circle(screen, (80, 80, 80), (icon_x, lives_y + 5), 10, 2)
 
         # Power-up indicators
         status_y = SCREEN_HEIGHT - 75
