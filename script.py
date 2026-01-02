@@ -1722,7 +1722,7 @@ async def boss_game_loop():
                     # Big explosion
                     for _ in range(50):
                         particles.append(Particle(boss.x, boss.y, random.choice([RED, ORANGE, YELLOW])))
-                    game_points += 100
+                    game_points += 10000  # Big reward for defeating the boss!
                     points += game_points
                     if game_points > high_score:
                         high_score = game_points
