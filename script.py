@@ -4,14 +4,18 @@ import sys
 import json
 import asyncio
 import math
+import platform
 
-# Check if running in browser (Pygbag)
-try:
-    from platform import window as browser_window
-    IS_BROWSER = True
-except ImportError:
-    browser_window = None
-    IS_BROWSER = False
+# Check if running in browser (Pygbag/Emscripten)
+def is_browser():
+    """Check if running in browser environment."""
+    return sys.platform == "emscripten" or hasattr(platform, 'window')
+
+def get_browser_window():
+    """Get browser window object if available."""
+    if hasattr(platform, 'window'):
+        return platform.window
+    return None
 
 # Initialize Pygame
 pygame.init()
@@ -536,10 +540,13 @@ def save_progress():
 
     try:
         json_data = json.dumps(leaderboard_data)
-        if IS_BROWSER and browser_window:
+        browser_win = get_browser_window()
+
+        if is_browser() and browser_win:
             # Save to browser localStorage
-            browser_window.localStorage.setItem("dodge_tejecks_leaderboard", json_data)
-            browser_window.localStorage.setItem("dodge_tejecks_lastuser", current_username)
+            browser_win.localStorage.setItem("dodge_tejecks_leaderboard", json_data)
+            browser_win.localStorage.setItem("dodge_tejecks_lastuser", current_username)
+            print(f"Saved to localStorage: {current_username} with {points} points")
         else:
             # Save to file (desktop)
             with open("leaderboard.json", "w") as file:
@@ -553,18 +560,23 @@ def load_leaderboard():
     """Load all users' data from leaderboard (localStorage in browser, file on desktop)."""
     global leaderboard_data
     try:
-        if IS_BROWSER and browser_window:
+        browser_win = get_browser_window()
+
+        if is_browser() and browser_win:
             # Load from browser localStorage
-            data = browser_window.localStorage.getItem("dodge_tejecks_leaderboard")
+            data = browser_win.localStorage.getItem("dodge_tejecks_leaderboard")
             if data:
                 leaderboard_data = json.loads(data)
+                print(f"Loaded from localStorage: {len(leaderboard_data)} users")
             else:
                 leaderboard_data = {}
+                print("No localStorage data found, starting fresh")
         else:
             # Load from file (desktop)
             with open("leaderboard.json", "r") as file:
                 leaderboard_data = json.load(file)
-    except (FileNotFoundError, json.JSONDecodeError, Exception):
+    except (FileNotFoundError, json.JSONDecodeError, Exception) as e:
+        print(f"Load failed: {e}")
         leaderboard_data = {}
 
 def load_user_progress(username):
@@ -672,8 +684,9 @@ async def username_entry_screen():
 
     # Check if there's a saved last user
     try:
-        if IS_BROWSER and browser_window:
-            last_user = browser_window.localStorage.getItem("dodge_tejecks_lastuser")
+        browser_win = get_browser_window()
+        if is_browser() and browser_win:
+            last_user = browser_win.localStorage.getItem("dodge_tejecks_lastuser")
             if last_user and last_user in leaderboard_data:
                 username = last_user
         else:
