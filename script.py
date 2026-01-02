@@ -9,12 +9,38 @@ import platform
 # Check if running in browser (Pygbag/Emscripten)
 def is_browser():
     """Check if running in browser environment."""
-    return sys.platform == "emscripten" or hasattr(platform, 'window')
+    return sys.platform == "emscripten"
 
-def get_browser_window():
-    """Get browser window object if available."""
-    if hasattr(platform, 'window'):
-        return platform.window
+def storage_set(key, value):
+    """Save to localStorage (browser) or file (desktop)."""
+    try:
+        if is_browser():
+            # Use JavaScript directly via platform.window
+            import platform
+            if hasattr(platform, 'window'):
+                platform.window.localStorage.setItem(key, value)
+                return True
+        else:
+            with open(f"{key}.txt", "w") as f:
+                f.write(value)
+            return True
+    except Exception as e:
+        print(f"storage_set error: {e}")
+    return False
+
+def storage_get(key):
+    """Load from localStorage (browser) or file (desktop)."""
+    try:
+        if is_browser():
+            import platform
+            if hasattr(platform, 'window'):
+                result = platform.window.localStorage.getItem(key)
+                return result if result else None
+        else:
+            with open(f"{key}.txt", "r") as f:
+                return f.read()
+    except Exception as e:
+        print(f"storage_get error: {e}")
     return None
 
 # Initialize Pygame
@@ -523,7 +549,7 @@ def is_level_unlocked(level_name):
     return best_scores[prev_level] >= required_score
 
 def save_progress():
-    """Save current user's progress to leaderboard (localStorage in browser, file on desktop)."""
+    """Save current user's progress to leaderboard."""
     global high_score, leaderboard_data
 
     if not current_username:
@@ -538,44 +564,24 @@ def save_progress():
         "current_level": current_level,
     }
 
-    try:
-        json_data = json.dumps(leaderboard_data)
-        browser_win = get_browser_window()
-
-        if is_browser() and browser_win:
-            # Save to browser localStorage
-            browser_win.localStorage.setItem("dodge_tejecks_leaderboard", json_data)
-            browser_win.localStorage.setItem("dodge_tejecks_lastuser", current_username)
-            print(f"Saved to localStorage: {current_username} with {points} points")
-        else:
-            # Save to file (desktop)
-            with open("leaderboard.json", "w") as file:
-                file.write(json_data)
-            with open("last_user.txt", "w") as f:
-                f.write(current_username)
-    except Exception as e:
-        print(f"Failed to save progress: {e}")
+    # Save to storage
+    json_data = json.dumps(leaderboard_data)
+    storage_set("dodge_leaderboard", json_data)
+    storage_set("dodge_lastuser", current_username)
+    print(f"Saved: {current_username} with {points} points")
 
 def load_leaderboard():
-    """Load all users' data from leaderboard (localStorage in browser, file on desktop)."""
+    """Load all users' data from leaderboard."""
     global leaderboard_data
     try:
-        browser_win = get_browser_window()
-
-        if is_browser() and browser_win:
-            # Load from browser localStorage
-            data = browser_win.localStorage.getItem("dodge_tejecks_leaderboard")
-            if data:
-                leaderboard_data = json.loads(data)
-                print(f"Loaded from localStorage: {len(leaderboard_data)} users")
-            else:
-                leaderboard_data = {}
-                print("No localStorage data found, starting fresh")
+        data = storage_get("dodge_leaderboard")
+        if data:
+            leaderboard_data = json.loads(data)
+            print(f"Loaded {len(leaderboard_data)} users")
         else:
-            # Load from file (desktop)
-            with open("leaderboard.json", "r") as file:
-                leaderboard_data = json.load(file)
-    except (FileNotFoundError, json.JSONDecodeError, Exception) as e:
+            leaderboard_data = {}
+            print("No saved data, starting fresh")
+    except Exception as e:
         print(f"Load failed: {e}")
         leaderboard_data = {}
 
@@ -684,16 +690,9 @@ async def username_entry_screen():
 
     # Check if there's a saved last user
     try:
-        browser_win = get_browser_window()
-        if is_browser() and browser_win:
-            last_user = browser_win.localStorage.getItem("dodge_tejecks_lastuser")
-            if last_user and last_user in leaderboard_data:
-                username = last_user
-        else:
-            with open("last_user.txt", "r") as f:
-                last_user = f.read().strip()
-                if last_user and last_user in leaderboard_data:
-                    username = last_user
+        last_user = storage_get("dodge_lastuser")
+        if last_user and last_user.strip() in leaderboard_data:
+            username = last_user.strip()
     except:
         pass
 
