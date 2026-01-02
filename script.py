@@ -19,9 +19,13 @@ def storage_set(key, value):
             import platform
             if hasattr(platform, 'window'):
                 platform.window.localStorage.setItem(key, value)
+                print(f"localStorage.setItem({key}) done")
                 return True
+            else:
+                print("No platform.window available!")
         else:
-            with open(f"{key}.txt", "w") as f:
+            filename = f"{key}.json" if "leaderboard" in key else f"{key}.txt"
+            with open(filename, "w") as f:
                 f.write(value)
             return True
     except Exception as e:
@@ -35,9 +39,13 @@ def storage_get(key):
             import platform
             if hasattr(platform, 'window'):
                 result = platform.window.localStorage.getItem(key)
+                print(f"localStorage.getItem({key}) = {result[:50] if result else None}...")
                 return result if result else None
+            else:
+                print("No platform.window available!")
         else:
-            with open(f"{key}.txt", "r") as f:
+            filename = f"{key}.json" if "leaderboard" in key else f"{key}.txt"
+            with open(filename, "r") as f:
                 return f.read()
     except Exception as e:
         print(f"storage_get error: {e}")
