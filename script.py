@@ -556,12 +556,11 @@ TOUCH_BUTTON_SIZE = 60
 TOUCH_BUTTONS = {
     "left": pygame.Rect(20, SCREEN_HEIGHT - 80, TOUCH_BUTTON_SIZE, TOUCH_BUTTON_SIZE),
     "right": pygame.Rect(90, SCREEN_HEIGHT - 80, TOUCH_BUTTON_SIZE, TOUCH_BUTTON_SIZE),
-    "shoot": pygame.Rect(SCREEN_WIDTH - 80, SCREEN_HEIGHT - 80, TOUCH_BUTTON_SIZE, TOUCH_BUTTON_SIZE),
     "pause": pygame.Rect(SCREEN_WIDTH - 50, 10, 40, 40),
 }
 
 def draw_touch_controls(surface):
-    """Draw touch control buttons for mobile play."""
+    """Draw touch control buttons for mobile play (auto-shoot enabled)."""
     # Left button
     pygame.draw.rect(surface, (100, 100, 100), TOUCH_BUTTONS["left"], border_radius=10)
     pygame.draw.polygon(surface, WHITE, [
@@ -578,11 +577,6 @@ def draw_touch_controls(surface):
         (TOUCH_BUTTONS["right"].x + 45, TOUCH_BUTTONS["right"].y + 30),
     ])
 
-    # Shoot button
-    pygame.draw.rect(surface, (200, 50, 50), TOUCH_BUTTONS["shoot"], border_radius=10)
-    pygame.draw.circle(surface, WHITE, TOUCH_BUTTONS["shoot"].center, 15, 3)
-    pygame.draw.circle(surface, WHITE, TOUCH_BUTTONS["shoot"].center, 5)
-
     # Pause button
     pygame.draw.rect(surface, (80, 80, 80), TOUCH_BUTTONS["pause"], border_radius=8)
     pause_x = TOUCH_BUTTONS["pause"].x + 12
@@ -591,8 +585,8 @@ def draw_touch_controls(surface):
     pygame.draw.rect(surface, WHITE, (pause_x + 10, pause_y, 6, 20))
 
 def get_touch_input():
-    """Get current touch/mouse button states."""
-    touch_state = {"left": False, "right": False, "shoot": False, "pause": False}
+    """Get current touch/mouse button states (auto-shoot enabled)."""
+    touch_state = {"left": False, "right": False, "pause": False}
 
     # Check mouse button held (for continuous movement)
     mouse_pressed = pygame.mouse.get_pressed()[0]
@@ -757,7 +751,7 @@ async def instructions_screen():
         instructions = [
             "CONTROLS:",
             "LEFT/RIGHT - Move player",
-            "SPACE - Shoot lasers",
+            "AUTO-SHOOT - Lasers fire automatically!",
             "",
             "POWER-UPS:",
             "$ Coin - Bonus points",
@@ -1461,8 +1455,8 @@ async def game_loop(difficulty, level_name="Easy"):
         if (keys[pygame.K_RIGHT] or touch["right"]) and player_x < SCREEN_WIDTH - 50:
             player_x += player_speed
 
-        # Shooting lasers with SPACE or touch
-        if (keys[pygame.K_SPACE] or touch["shoot"]) and laser_cooldown <= 0 and laser_ammo > 0:
+        # Auto-shoot - automatically fires when cooldown is ready and has ammo
+        if laser_cooldown <= 0 and laser_ammo > 0:
             play_sound(sound_laser)
             laser_ammo -= 1
 
@@ -1888,8 +1882,8 @@ async def boss_game_loop():
         if (keys[pygame.K_RIGHT] or touch["right"]) and player_x < SCREEN_WIDTH - 50:
             player_x += current_speed
 
-        # Shooting (keyboard + touch)
-        if (keys[pygame.K_SPACE] or touch["shoot"]) and laser_cooldown <= 0 and laser_ammo > 0:
+        # Auto-shoot - automatically fires when cooldown is ready and has ammo
+        if laser_cooldown <= 0 and laser_ammo > 0:
             play_sound(sound_laser)
             laser_ammo -= 1
             laser_cooldown = base_cooldown // 3 if rapid_fire_active > 0 else base_cooldown
