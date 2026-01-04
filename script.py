@@ -192,6 +192,36 @@ shop_items = {
 equipped_item = "EMDR Tejeck"
 selected_item = 0
 
+# Upgrade system - Power-up durations and shooting
+# Duration upgrade levels: 0=5s, 1=10s, 2=15s, 3=20s, 4=25s, 5=30s
+duration_upgrade_costs = [0, 500, 600, 700, 800, 900]  # Cost to reach each level
+duration_upgrade_values = [5, 10, 15, 20, 25, 30]  # Duration in seconds
+
+# Shooting upgrade levels: 0=single, 1=double, 2=triple
+shooting_upgrade_costs = [0, 800, 1600]  # Cost to reach each level
+shooting_upgrade_names = ["Single Shot", "Double Shot", "Triple Shot"]
+
+# Player upgrades (saved per user)
+player_upgrades = {
+    "speed_duration": 0,      # Level 0-5
+    "slowmo_duration": 0,     # Level 0-5
+    "rapid_fire_duration": 0, # Level 0-5
+    "magnet_duration": 0,     # Level 0-5
+    "shooting": 0,            # Level 0-2 (single/double/triple)
+}
+
+def get_powerup_duration(powerup_type):
+    """Get the duration for a power-up based on upgrades."""
+    upgrade_key = f"{powerup_type}_duration"
+    if upgrade_key in player_upgrades:
+        level = player_upgrades[upgrade_key]
+        return duration_upgrade_values[level] * 60  # Convert to frames (60 FPS)
+    return 5 * 60  # Default 5 seconds
+
+def get_shooting_level():
+    """Get current shooting level (0=single, 1=double, 2=triple)."""
+    return player_upgrades.get("shooting", 0)
+
 # Load all enemy images
 enemy_images = [
     pygame.image.load("adeline.jpeg"),
@@ -669,6 +699,7 @@ def save_progress():
         "purchased_items": {item: data["purchased"] for item, data in shop_items.items()},
         "best_scores": best_scores.copy(),
         "current_level": current_level,
+        "upgrades": player_upgrades.copy(),
     }
 
     # Save to local storage
@@ -743,7 +774,7 @@ async def load_leaderboard_from_cloud():
 
 def load_user_progress(username):
     """Load a specific user's progress from leaderboard data."""
-    global points, high_score, best_scores, current_username
+    global points, high_score, best_scores, current_username, player_upgrades
 
     current_username = username
 
@@ -761,6 +792,11 @@ def load_user_progress(username):
         saved_scores = user_data.get("best_scores", {})
         for level in best_scores:
             best_scores[level] = saved_scores.get(level, 0)
+
+        # Load upgrades
+        saved_upgrades = user_data.get("upgrades", {})
+        for upgrade_key in player_upgrades:
+            player_upgrades[upgrade_key] = saved_upgrades.get(upgrade_key, 0)
     else:
         # New user - reset to defaults
         points = 0
@@ -769,6 +805,9 @@ def load_user_progress(username):
             shop_items[item]["purchased"] = (item == "EMDR Tejeck")  # EMDR is free/default
         for level in best_scores:
             best_scores[level] = 0
+        # Reset upgrades
+        for upgrade_key in player_upgrades:
+            player_upgrades[upgrade_key] = 0
 
 def get_sorted_leaderboard():
     """Get leaderboard sorted by total points (descending)."""
@@ -1145,7 +1184,7 @@ def scale_size(width, height):
 
 # Menu button animation
 menu_hover = -1
-menu_animation = [0, 0, 0, 0, 0, 0]  # Added one more for leaderboard
+menu_animation = [0, 0, 0, 0, 0, 0, 0]  # 7 menu items
 
 async def main_menu():
     """Display the main menu."""
@@ -1177,9 +1216,9 @@ async def main_menu():
         draw_text(f"Points: {points}", SMALL_FONT, GREEN, 10, 130)
 
         # Menu items with hover effect
-        menu_items = ["1. PLAY", "2. SHOP", "3. LEADERBOARD", "4. INSTRUCTIONS", "5. CHANGELOG", "6. QUIT"]
+        menu_items = ["1. PLAY", "2. SHOP", "3. UPGRADES", "4. LEADERBOARD", "5. INSTRUCTIONS", "6. CHANGELOG", "7. QUIT"]
         for i, item in enumerate(menu_items):
-            y_pos = 180 + i * 45
+            y_pos = 175 + i * 40
             # Animate menu items
             menu_animation[i] = min(1, menu_animation[i] + 0.1)
             offset = (1 - menu_animation[i]) * 50
@@ -1203,13 +1242,15 @@ async def main_menu():
                 elif event.key == pygame.K_2:
                     await shop()
                 elif event.key == pygame.K_3:
+                    await upgrade_shop()
+                elif event.key == pygame.K_4:
                     load_leaderboard()  # Refresh leaderboard data
                     await leaderboard_screen()
-                elif event.key == pygame.K_4:
-                    await instructions_screen()
                 elif event.key == pygame.K_5:
-                    await changelog_screen()
+                    await instructions_screen()
                 elif event.key == pygame.K_6:
+                    await changelog_screen()
+                elif event.key == pygame.K_7:
                     save_progress()
                     pygame.quit()
                     sys.exit()
@@ -1537,6 +1578,217 @@ async def shop():
         await asyncio.sleep(0)
         clock.tick(60)
 
+async def upgrade_shop():
+    """Upgrade shop for power-up durations and shooting."""
+    global points, player_upgrades
+
+    selected_category = 0  # 0=duration upgrades, 1=shooting
+    selected_upgrade = 0
+    error_message = ""
+    error_timer = 0
+    success_message = ""
+    success_timer = 0
+
+    # Upgrade categories
+    duration_upgrades = [
+        ("speed_duration", "Speed Boost", ">"),
+        ("slowmo_duration", "Slow Motion", "~"),
+        ("rapid_fire_duration", "Rapid Fire", "R"),
+        ("magnet_duration", "Magnet", "@"),
+    ]
+
+    while True:
+        update_background()
+        draw_background(screen, False)
+
+        # Title
+        draw_text_centered("UPGRADE SHOP", BIG_FONT, BLACK, 30)
+        draw_text(f"Points: {points}", FONT, GREEN, 10, 80)
+
+        # Category tabs
+        tab_y = 120
+        tab_width = 200
+        # Duration tab
+        if selected_category == 0:
+            pygame.draw.rect(screen, BLUE, (50, tab_y, tab_width, 35), border_radius=8)
+            draw_text("Power-ups", FONT, WHITE, 80, tab_y + 5)
+        else:
+            pygame.draw.rect(screen, (150, 150, 150), (50, tab_y, tab_width, 35), border_radius=8)
+            draw_text("Power-ups", FONT, BLACK, 80, tab_y + 5)
+
+        # Shooting tab
+        if selected_category == 1:
+            pygame.draw.rect(screen, BLUE, (280, tab_y, tab_width, 35), border_radius=8)
+            draw_text("Shooting", FONT, WHITE, 320, tab_y + 5)
+        else:
+            pygame.draw.rect(screen, (150, 150, 150), (280, tab_y, tab_width, 35), border_radius=8)
+            draw_text("Shooting", FONT, BLACK, 320, tab_y + 5)
+
+        content_y = 170
+
+        if selected_category == 0:
+            # Duration upgrades
+            draw_text("Upgrade power-up durations:", SMALL_FONT, BLACK, 50, content_y)
+            draw_text("(Default: 5 sec)", SMALL_FONT, PURPLE, 300, content_y)
+
+            for i, (key, name, icon) in enumerate(duration_upgrades):
+                y_pos = content_y + 40 + i * 70
+                current_level = player_upgrades[key]
+                current_duration = duration_upgrade_values[current_level]
+
+                # Highlight selected
+                if i == selected_upgrade:
+                    pygame.draw.rect(screen, (200, 220, 255), (40, y_pos - 5, SCREEN_WIDTH - 80, 60), border_radius=10)
+                    pygame.draw.rect(screen, BLUE, (40, y_pos - 5, SCREEN_WIDTH - 80, 60), 2, border_radius=10)
+
+                # Icon and name
+                draw_text(f"[{icon}] {name}", FONT, BLACK, 60, y_pos)
+                draw_text(f"Current: {current_duration}s", SMALL_FONT, GREEN, 60, y_pos + 25)
+
+                # Next upgrade info
+                if current_level < 5:
+                    next_duration = duration_upgrade_values[current_level + 1]
+                    cost = duration_upgrade_costs[current_level + 1]
+                    draw_text(f"Next: {next_duration}s", SMALL_FONT, ORANGE, 300, y_pos + 5)
+                    draw_text(f"Cost: {cost}", FONT, RED if points < cost else GREEN, 300, y_pos + 25)
+                else:
+                    draw_text("MAX LEVEL!", FONT, PURPLE, 300, y_pos + 15)
+
+                # Level indicators
+                for lvl in range(6):
+                    indicator_x = 500 + lvl * 25
+                    if lvl <= current_level:
+                        pygame.draw.circle(screen, GREEN, (indicator_x, y_pos + 20), 8)
+                    else:
+                        pygame.draw.circle(screen, (150, 150, 150), (indicator_x, y_pos + 20), 8, 2)
+
+        else:
+            # Shooting upgrades
+            draw_text("Upgrade your shooting:", SMALL_FONT, BLACK, 50, content_y)
+
+            current_shooting = player_upgrades["shooting"]
+
+            for i in range(3):
+                y_pos = content_y + 50 + i * 80
+                name = shooting_upgrade_names[i]
+                cost = shooting_upgrade_costs[i]
+                is_owned = current_shooting >= i
+                is_equipped = current_shooting == i
+
+                # Highlight selected
+                if i == selected_upgrade:
+                    pygame.draw.rect(screen, (200, 220, 255), (40, y_pos - 5, SCREEN_WIDTH - 80, 70), border_radius=10)
+                    pygame.draw.rect(screen, BLUE, (40, y_pos - 5, SCREEN_WIDTH - 80, 70), 2, border_radius=10)
+
+                # Name and description
+                draw_text(name, FONT, BLACK, 60, y_pos)
+
+                if i == 0:
+                    desc = "Fire 1 laser at a time"
+                elif i == 1:
+                    desc = "Fire 2 lasers side by side"
+                else:
+                    desc = "Fire 3 lasers in a spread"
+                draw_text(desc, SMALL_FONT, (100, 100, 100), 60, y_pos + 28)
+
+                # Status
+                if is_equipped:
+                    draw_text("EQUIPPED", FONT, GREEN, 450, y_pos + 10)
+                elif is_owned:
+                    draw_text("OWNED", FONT, CYAN, 450, y_pos + 10)
+                else:
+                    draw_text(f"Cost: {cost}", FONT, RED if points < cost else GREEN, 450, y_pos + 10)
+
+        # Error/success messages
+        if error_timer > 0:
+            error_timer -= 1
+            pygame.draw.rect(screen, (255, 200, 200), (100, SCREEN_HEIGHT - 120, SCREEN_WIDTH - 200, 40), border_radius=10)
+            draw_text_centered(error_message, FONT, RED, SCREEN_HEIGHT - 110)
+
+        if success_timer > 0:
+            success_timer -= 1
+            pygame.draw.rect(screen, (200, 255, 200), (100, SCREEN_HEIGHT - 120, SCREEN_WIDTH - 200, 40), border_radius=10)
+            draw_text_centered(success_message, FONT, GREEN, SCREEN_HEIGHT - 110)
+
+        # Instructions
+        draw_text_centered("LEFT/RIGHT: Switch tabs | UP/DOWN: Select | ENTER: Buy | B: Back", SMALL_FONT, BLACK, SCREEN_HEIGHT - 40)
+
+        pygame.display.flip()
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                save_progress()
+                pygame.quit()
+                sys.exit()
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_LEFT or event.key == pygame.K_RIGHT:
+                    selected_category = 1 - selected_category
+                    selected_upgrade = 0
+                    play_sound(sound_collect)
+                elif event.key == pygame.K_UP:
+                    max_items = len(duration_upgrades) if selected_category == 0 else 3
+                    selected_upgrade = (selected_upgrade - 1) % max_items
+                    play_sound(sound_collect)
+                elif event.key == pygame.K_DOWN:
+                    max_items = len(duration_upgrades) if selected_category == 0 else 3
+                    selected_upgrade = (selected_upgrade + 1) % max_items
+                    play_sound(sound_collect)
+                elif event.key == pygame.K_RETURN:
+                    if selected_category == 0:
+                        # Duration upgrade
+                        key, name, _ = duration_upgrades[selected_upgrade]
+                        current_level = player_upgrades[key]
+                        if current_level < 5:
+                            cost = duration_upgrade_costs[current_level + 1]
+                            if points >= cost:
+                                points -= cost
+                                player_upgrades[key] = current_level + 1
+                                new_duration = duration_upgrade_values[current_level + 1]
+                                success_message = f"{name} upgraded to {new_duration}s!"
+                                success_timer = 120
+                                play_sound(sound_powerup)
+                                save_progress()
+                            else:
+                                needed = cost - points
+                                error_message = f"Need {needed} more points!"
+                                error_timer = 120
+                                play_sound(sound_hit)
+                        else:
+                            error_message = "Already at max level!"
+                            error_timer = 120
+                            play_sound(sound_hit)
+                    else:
+                        # Shooting upgrade
+                        current_shooting = player_upgrades["shooting"]
+                        if selected_upgrade > current_shooting:
+                            cost = shooting_upgrade_costs[selected_upgrade]
+                            if points >= cost:
+                                points -= cost
+                                player_upgrades["shooting"] = selected_upgrade
+                                success_message = f"Unlocked {shooting_upgrade_names[selected_upgrade]}!"
+                                success_timer = 120
+                                play_sound(sound_powerup)
+                                save_progress()
+                            else:
+                                needed = cost - points
+                                error_message = f"Need {needed} more points!"
+                                error_timer = 120
+                                play_sound(sound_hit)
+                        elif selected_upgrade == current_shooting:
+                            error_message = "Already equipped!"
+                            error_timer = 120
+                            play_sound(sound_hit)
+                        else:
+                            error_message = "You have a better upgrade!"
+                            error_timer = 120
+                            play_sound(sound_hit)
+                elif event.key == pygame.K_b or event.key == pygame.K_ESCAPE:
+                    play_sound(sound_collect)
+                    return
+
+        await asyncio.sleep(0)
+        clock.tick(60)
+
 async def game_loop(difficulty, level_name="Easy"):
     """Main game loop with power-ups, lasers, and effects."""
     global points, high_score, screen_shake, shake_intensity, best_scores, current_level
@@ -1762,15 +2014,15 @@ async def game_loop(difficulty, level_name="Easy"):
                     for _ in range(15):
                         particles.append(Particle(power.x, power.y, CYAN))
                 elif power.type == 'speed':
-                    speed_boost_active = PowerUp.TYPES['speed']['duration']
+                    speed_boost_active = get_powerup_duration("speed")  # Uses upgraded duration
                     for _ in range(15):
                         particles.append(Particle(power.x, power.y, GREEN))
                 elif power.type == 'slowmo':
-                    slowmo_active = PowerUp.TYPES['slowmo']['duration']
+                    slowmo_active = get_powerup_duration("slowmo")  # Uses upgraded duration
                     for _ in range(15):
                         particles.append(Particle(power.x, power.y, PURPLE))
                 elif power.type == 'magnet':
-                    magnet_active = PowerUp.TYPES['magnet']['duration']
+                    magnet_active = get_powerup_duration("magnet")  # Uses upgraded duration
                     for _ in range(15):
                         particles.append(Particle(power.x, power.y, ORANGE))
                 elif power.type == 'bomb':
@@ -1787,11 +2039,11 @@ async def game_loop(difficulty, level_name="Easy"):
                     for _ in range(20):
                         particles.append(Particle(power.x, power.y, RED))
                 elif power.type == 'rapid':
-                    rapid_fire_active = PowerUp.TYPES['rapid']['duration']
+                    rapid_fire_active = get_powerup_duration("rapid_fire")  # Uses upgraded duration
                     for _ in range(15):
                         particles.append(Particle(power.x, power.y, (255, 100, 100)))
                 elif power.type == 'double':
-                    double_shot_active = PowerUp.TYPES['double']['duration']
+                    double_shot_active = get_powerup_duration("rapid_fire")  # Uses rapid fire duration for double shot too
                     for _ in range(15):
                         particles.append(Particle(power.x, power.y, (100, 100, 255)))
                 elif power.type == 'ammo':
@@ -1939,7 +2191,6 @@ async def game_loop(difficulty, level_name="Easy"):
         # Auto-shoot - automatically fires when cooldown is ready and has ammo
         if laser_cooldown <= 0 and laser_ammo > 0:
             play_sound(sound_laser)
-            laser_ammo -= 1
 
             # Determine cooldown based on rapid fire
             if rapid_fire_active > 0:
@@ -1947,19 +2198,45 @@ async def game_loop(difficulty, level_name="Easy"):
             else:
                 laser_cooldown = base_cooldown
 
-            # Create laser(s)
+            # Create laser(s) based on shooting upgrade level
             laser_x = player_x + 25
             laser_y = player_y - 10
+            shooting_level = get_shooting_level()  # 0=single, 1=double, 2=triple
 
-            if double_shot_active > 0:
-                # Double shot - two lasers side by side
-                lasers.append(Laser(laser_x - 15, laser_y, (255, 100, 100)))
-                lasers.append(Laser(laser_x + 15, laser_y, (255, 100, 100)))
-                # Double shot uses extra ammo
-                if laser_ammo > 0:
+            # Double shot power-up doubles the lasers
+            multiplier = 2 if double_shot_active > 0 else 1
+
+            if shooting_level == 0:
+                # Single shot (or double with power-up)
+                if multiplier == 2:
+                    lasers.append(Laser(laser_x - 15, laser_y, (255, 100, 100)))
+                    lasers.append(Laser(laser_x + 15, laser_y, (255, 100, 100)))
+                    laser_ammo -= 2
+                else:
+                    lasers.append(Laser(laser_x, laser_y, RED))
                     laser_ammo -= 1
+            elif shooting_level == 1:
+                # Double shot upgrade
+                lasers.append(Laser(laser_x - 12, laser_y, CYAN))
+                lasers.append(Laser(laser_x + 12, laser_y, CYAN))
+                laser_ammo -= 2
+                if multiplier == 2:
+                    lasers.append(Laser(laser_x - 24, laser_y, (255, 100, 100)))
+                    lasers.append(Laser(laser_x + 24, laser_y, (255, 100, 100)))
+                    laser_ammo -= 2
             else:
-                lasers.append(Laser(laser_x, laser_y, RED))
+                # Triple shot upgrade - spread pattern
+                lasers.append(Laser(laser_x, laser_y, PURPLE))  # Center
+                lasers.append(Laser(laser_x - 20, laser_y + 5, PURPLE))  # Left
+                lasers.append(Laser(laser_x + 20, laser_y + 5, PURPLE))  # Right
+                laser_ammo -= 3
+                if multiplier == 2:
+                    lasers.append(Laser(laser_x - 35, laser_y + 10, (255, 100, 100)))
+                    lasers.append(Laser(laser_x + 35, laser_y + 10, (255, 100, 100)))
+                    laser_ammo -= 2
+
+            # Ensure ammo doesn't go negative
+            laser_ammo = max(0, laser_ammo)
 
         clock.tick(60)
         await asyncio.sleep(0)
@@ -2248,11 +2525,11 @@ async def boss_game_loop():
                         if shields < max_shields:
                             shields += 1  # Add a shield (life), max 5
                     elif enemy.type == 'speed':
-                        speed_boost_active = 300
+                        speed_boost_active = get_powerup_duration("speed")
                     elif enemy.type == 'rapid':
-                        rapid_fire_active = 300
+                        rapid_fire_active = get_powerup_duration("rapid_fire")
                     elif enemy.type == 'double':
-                        double_shot_active = 400
+                        double_shot_active = get_powerup_duration("rapid_fire")
                     elif enemy.type == 'ammo':
                         laser_ammo = min(max_ammo, laser_ammo + 10)
                     for _ in range(10):
@@ -2370,19 +2647,41 @@ async def boss_game_loop():
         # Auto-shoot - automatically fires when cooldown is ready and has ammo
         if laser_cooldown <= 0 and laser_ammo > 0:
             play_sound(sound_laser)
-            laser_ammo -= 1
             laser_cooldown = base_cooldown // 3 if rapid_fire_active > 0 else base_cooldown
 
             laser_x = player_x + 25
             laser_y = player_y - 10
+            shooting_level = get_shooting_level()
 
-            if double_shot_active > 0:
-                lasers.append(Laser(laser_x - 15, laser_y, (255, 100, 100)))
-                lasers.append(Laser(laser_x + 15, laser_y, (255, 100, 100)))
-                if laser_ammo > 0:
+            multiplier = 2 if double_shot_active > 0 else 1
+
+            if shooting_level == 0:
+                if multiplier == 2:
+                    lasers.append(Laser(laser_x - 15, laser_y, (255, 100, 100)))
+                    lasers.append(Laser(laser_x + 15, laser_y, (255, 100, 100)))
+                    laser_ammo -= 2
+                else:
+                    lasers.append(Laser(laser_x, laser_y, RED))
                     laser_ammo -= 1
+            elif shooting_level == 1:
+                lasers.append(Laser(laser_x - 12, laser_y, CYAN))
+                lasers.append(Laser(laser_x + 12, laser_y, CYAN))
+                laser_ammo -= 2
+                if multiplier == 2:
+                    lasers.append(Laser(laser_x - 24, laser_y, (255, 100, 100)))
+                    lasers.append(Laser(laser_x + 24, laser_y, (255, 100, 100)))
+                    laser_ammo -= 2
             else:
-                lasers.append(Laser(laser_x, laser_y, RED))
+                lasers.append(Laser(laser_x, laser_y, PURPLE))
+                lasers.append(Laser(laser_x - 20, laser_y + 5, PURPLE))
+                lasers.append(Laser(laser_x + 20, laser_y + 5, PURPLE))
+                laser_ammo -= 3
+                if multiplier == 2:
+                    lasers.append(Laser(laser_x - 35, laser_y + 10, (255, 100, 100)))
+                    lasers.append(Laser(laser_x + 35, laser_y + 10, (255, 100, 100)))
+                    laser_ammo -= 2
+
+            laser_ammo = max(0, laser_ammo)
 
         clock.tick(60)
         await asyncio.sleep(0)
