@@ -6,10 +6,10 @@ import asyncio
 import math
 import platform
 
-# Cloud leaderboard using npoint.io (FREE, no API key needed!)
+# Cloud leaderboard using jsonblob.com (FREE, no API key needed!)
 # This enables live cross-device leaderboard!
 CLOUD_ENABLED = True
-NPOINT_ID = "b972a0dc0c169fb73135"  # Your npoint.io endpoint ID
+JSONBLOB_ID = "019b8848-ceea-7fa2-a656-7c1db1bb9447"
 
 # Check if running in browser (Pygbag/Emscripten)
 def is_browser():
@@ -17,29 +17,29 @@ def is_browser():
     return sys.platform == "emscripten"
 
 async def cloud_save(data):
-    """Save leaderboard data to cloud (npoint.io)."""
+    """Save leaderboard data to cloud (jsonblob.com)."""
     if not CLOUD_ENABLED:
         return False
     try:
-        url = f"https://api.npoint.io/{NPOINT_ID}"
+        url = f"https://jsonblob.com/api/jsonBlob/{JSONBLOB_ID}"
         json_data = json.dumps(data)
 
         if is_browser() and hasattr(platform, 'window'):
             # Use JavaScript fetch in browser
             js_code = f'''
                 fetch("{url}", {{
-                    method: "POST",
+                    method: "PUT",
                     headers: {{ "Content-Type": "application/json" }},
-                    body: '{json_data.replace("'", "\\'")}'
+                    body: '{json_data.replace("'", "\\'").replace(chr(10), "\\n")}'
                 }}).then(r => r.ok).catch(e => false)
             '''
             platform.window.eval(js_code)
-            print("Cloud save sent")
+            print("Cloud save sent to jsonblob")
             return True
         else:
             # Use urllib for desktop
             import urllib.request
-            req = urllib.request.Request(url, data=json_data.encode('utf-8'), method='POST')
+            req = urllib.request.Request(url, data=json_data.encode('utf-8'), method='PUT')
             req.add_header('Content-Type', 'application/json')
             with urllib.request.urlopen(req, timeout=10) as response:
                 return response.status == 200
@@ -48,19 +48,20 @@ async def cloud_save(data):
     return False
 
 async def cloud_load():
-    """Load leaderboard data from cloud (npoint.io)."""
+    """Load leaderboard data from cloud (jsonblob.com)."""
     if not CLOUD_ENABLED:
         return None
     try:
-        url = f"https://api.npoint.io/{NPOINT_ID}"
+        url = f"https://jsonblob.com/api/jsonBlob/{JSONBLOB_ID}"
 
         if is_browser() and hasattr(platform, 'window'):
-            # Use JavaScript fetch in browser - need to handle async properly
+            # Use JavaScript XHR for synchronous request in browser
             js_code = f'''
                 (function() {{
                     var result = null;
                     var xhr = new XMLHttpRequest();
                     xhr.open("GET", "{url}", false);
+                    xhr.setRequestHeader("Accept", "application/json");
                     xhr.send();
                     if (xhr.status === 200) {{
                         result = xhr.responseText;
@@ -71,16 +72,19 @@ async def cloud_load():
             result = platform.window.eval(js_code)
             if result:
                 data = json.loads(result)
-                print(f"Cloud load: got {len(data)} users")
-                return data
+                if isinstance(data, dict):
+                    print(f"Cloud load: got {len(data)} users")
+                    return data
         else:
             # Use urllib for desktop
             import urllib.request
             req = urllib.request.Request(url)
+            req.add_header('Accept', 'application/json')
             with urllib.request.urlopen(req, timeout=10) as response:
                 data = json.loads(response.read().decode('utf-8'))
-                print(f"Cloud load: got {len(data)} users")
-                return data
+                if isinstance(data, dict):
+                    print(f"Cloud load: got {len(data)} users")
+                    return data
     except Exception as e:
         print(f"Cloud load error: {e}")
     return None
