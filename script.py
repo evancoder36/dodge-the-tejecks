@@ -6,10 +6,93 @@ import asyncio
 import math
 import platform
 
+# Cloud leaderboard using JSONBin.io (FREE)
+# This enables live cross-device leaderboard!
+CLOUD_ENABLED = True
+JSONBIN_BIN_ID = "6778a5e0ad19ca34f8eeb277"
+JSONBIN_API_KEY = "$2a$10$mKdo0lXGHOFQqGNBbCO1vu8xrU8U7PCGmInOVTP6P9h94JALlwxUa"
+
 # Check if running in browser (Pygbag/Emscripten)
 def is_browser():
     """Check if running in browser environment."""
     return sys.platform == "emscripten"
+
+async def cloud_save(data):
+    """Save leaderboard data to cloud (JSONBin.io)."""
+    if not CLOUD_ENABLED:
+        return False
+    try:
+        url = f"https://api.jsonbin.io/v3/b/{JSONBIN_BIN_ID}"
+        headers = {
+            "Content-Type": "application/json",
+            "X-Master-Key": JSONBIN_API_KEY
+        }
+        json_data = json.dumps(data)
+
+        if is_browser() and hasattr(platform, 'window'):
+            # Use JavaScript fetch in browser
+            js_code = f'''
+                (async () => {{
+                    const response = await fetch("{url}", {{
+                        method: "PUT",
+                        headers: {{
+                            "Content-Type": "application/json",
+                            "X-Master-Key": "{JSONBIN_API_KEY}"
+                        }},
+                        body: JSON.stringify({json_data})
+                    }});
+                    return response.ok;
+                }})()
+            '''
+            result = platform.window.eval(js_code)
+            print(f"Cloud save result: {result}")
+            return True
+        else:
+            # Use urllib for desktop
+            import urllib.request
+            req = urllib.request.Request(url, data=json_data.encode('utf-8'), method='PUT')
+            req.add_header('Content-Type', 'application/json')
+            req.add_header('X-Master-Key', JSONBIN_API_KEY)
+            with urllib.request.urlopen(req, timeout=5) as response:
+                return response.status == 200
+    except Exception as e:
+        print(f"Cloud save error: {e}")
+    return False
+
+async def cloud_load():
+    """Load leaderboard data from cloud (JSONBin.io)."""
+    if not CLOUD_ENABLED:
+        return None
+    try:
+        url = f"https://api.jsonbin.io/v3/b/{JSONBIN_BIN_ID}/latest"
+
+        if is_browser() and hasattr(platform, 'window'):
+            # Use JavaScript fetch in browser
+            js_code = f'''
+                (async () => {{
+                    const response = await fetch("{url}", {{
+                        headers: {{
+                            "X-Master-Key": "{JSONBIN_API_KEY}"
+                        }}
+                    }});
+                    const data = await response.json();
+                    return JSON.stringify(data.record || {{}});
+                }})()
+            '''
+            result = platform.window.eval(js_code)
+            if result:
+                return json.loads(result)
+        else:
+            # Use urllib for desktop
+            import urllib.request
+            req = urllib.request.Request(url)
+            req.add_header('X-Master-Key', JSONBIN_API_KEY)
+            with urllib.request.urlopen(req, timeout=5) as response:
+                data = json.loads(response.read().decode('utf-8'))
+                return data.get('record', {})
+    except Exception as e:
+        print(f"Cloud load error: {e}")
+    return None
 
 def storage_set(key, value):
     """Save to localStorage (browser) or file (desktop)."""
@@ -556,9 +639,12 @@ def is_level_unlocked(level_name):
     required_score = level_unlock_requirements[level_name]
     return best_scores[prev_level] >= required_score
 
+# Flag to track if cloud sync is pending
+cloud_sync_pending = False
+
 def save_progress():
-    """Save current user's progress to leaderboard."""
-    global high_score, leaderboard_data
+    """Save current user's progress to leaderboard (local + queue cloud sync)."""
+    global high_score, leaderboard_data, cloud_sync_pending
 
     if not current_username:
         return  # Don't save if no username
@@ -572,26 +658,75 @@ def save_progress():
         "current_level": current_level,
     }
 
-    # Save to storage
+    # Save to local storage
     json_data = json.dumps(leaderboard_data)
     storage_set("dodge_leaderboard", json_data)
     storage_set("dodge_lastuser", current_username)
-    print(f"Saved: {current_username} with {points} points")
+    print(f"Saved locally: {current_username} with {points} points")
+
+    # Mark cloud sync as pending
+    cloud_sync_pending = True
+
+async def sync_to_cloud():
+    """Sync leaderboard to cloud if pending."""
+    global cloud_sync_pending
+    if cloud_sync_pending and CLOUD_ENABLED:
+        try:
+            # First load latest from cloud to merge
+            cloud_data = await cloud_load()
+            if cloud_data:
+                # Merge: keep higher scores for each user
+                for username, data in cloud_data.items():
+                    if username not in leaderboard_data:
+                        leaderboard_data[username] = data
+                    elif data.get("points", 0) > leaderboard_data[username].get("points", 0):
+                        # Cloud has higher score, but keep local user's current session
+                        if username != current_username:
+                            leaderboard_data[username] = data
+
+            # Now save merged data to cloud
+            await cloud_save(leaderboard_data)
+            cloud_sync_pending = False
+            print("Cloud sync complete!")
+        except Exception as e:
+            print(f"Cloud sync error: {e}")
 
 def load_leaderboard():
-    """Load all users' data from leaderboard."""
+    """Load all users' data from local storage."""
     global leaderboard_data
     try:
         data = storage_get("dodge_leaderboard")
         if data:
             leaderboard_data = json.loads(data)
-            print(f"Loaded {len(leaderboard_data)} users")
+            print(f"Loaded {len(leaderboard_data)} users from local")
         else:
             leaderboard_data = {}
             print("No saved data, starting fresh")
     except Exception as e:
         print(f"Load failed: {e}")
         leaderboard_data = {}
+
+async def load_leaderboard_from_cloud():
+    """Load and merge leaderboard from cloud."""
+    global leaderboard_data
+    if not CLOUD_ENABLED:
+        return
+
+    try:
+        print("Fetching leaderboard from cloud...")
+        cloud_data = await cloud_load()
+        if cloud_data:
+            # Merge cloud data with local data
+            for username, data in cloud_data.items():
+                if username not in leaderboard_data:
+                    leaderboard_data[username] = data
+                elif username != current_username:
+                    # For other users, take the higher score
+                    if data.get("points", 0) > leaderboard_data[username].get("points", 0):
+                        leaderboard_data[username] = data
+            print(f"Merged cloud data: now {len(leaderboard_data)} users")
+    except Exception as e:
+        print(f"Cloud load failed: {e}")
 
 def load_user_progress(username):
     """Load a specific user's progress from leaderboard data."""
@@ -785,6 +920,18 @@ async def leaderboard_screen():
     """Display the live leaderboard showing all players."""
     scroll_offset = 0
     max_display = 10
+    loading_cloud = True
+    cloud_loaded = False
+
+    # Start loading from cloud in background
+    async def load_cloud_data():
+        nonlocal cloud_loaded
+        await load_leaderboard_from_cloud()
+        await sync_to_cloud()
+        cloud_loaded = True
+
+    # Create task to load cloud data
+    cloud_task = asyncio.create_task(load_cloud_data())
 
     while True:
         update_background()
@@ -792,6 +939,10 @@ async def leaderboard_screen():
 
         # Title
         draw_text_centered("LEADERBOARD", BIG_FONT, BLACK, 30)
+
+        # Show loading status
+        if not cloud_loaded:
+            draw_text_centered("Syncing with cloud...", SMALL_FONT, ORANGE, 55)
 
         # Current player info
         pygame.draw.rect(screen, (220, 240, 255), (20, 80, SCREEN_WIDTH - 40, 45), border_radius=10)
@@ -987,8 +1138,19 @@ async def main_menu():
     """Display the main menu."""
     global menu_animation
     title_offset = 0
+    sync_timer = 0
+
+    # Sync to cloud when entering main menu
+    if CLOUD_ENABLED and cloud_sync_pending:
+        await sync_to_cloud()
 
     while True:
+        # Periodic cloud sync every 30 seconds
+        sync_timer += 1
+        if sync_timer >= 1800 and CLOUD_ENABLED:  # 30 seconds at 60fps
+            sync_timer = 0
+            if cloud_sync_pending:
+                asyncio.create_task(sync_to_cloud())
         update_background()
         draw_background(screen, False)
 
@@ -2286,11 +2448,19 @@ async def victory_screen(score):
 
 async def main():
     """Main entry point for the game."""
-    # Load leaderboard data first
+    # Load local leaderboard data first
     load_leaderboard()
+
+    # Also load from cloud to get latest data
+    if CLOUD_ENABLED:
+        await load_leaderboard_from_cloud()
 
     # Show username entry screen
     await username_entry_screen()
+
+    # Sync current user's data to cloud after login
+    if CLOUD_ENABLED:
+        await sync_to_cloud()
 
     # Now user is logged in, show main menu
     await main_menu()
