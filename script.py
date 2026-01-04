@@ -6,11 +6,10 @@ import asyncio
 import math
 import platform
 
-# Cloud leaderboard using JSONBin.io (FREE)
+# Cloud leaderboard using npoint.io (FREE, no API key needed!)
 # This enables live cross-device leaderboard!
 CLOUD_ENABLED = True
-JSONBIN_BIN_ID = "6778a5e0ad19ca34f8eeb277"
-JSONBIN_API_KEY = "$2a$10$mKdo0lXGHOFQqGNBbCO1vu8xrU8U7PCGmInOVTP6P9h94JALlwxUa"
+NPOINT_ID = "b972a0dc0c169fb73135"  # Your npoint.io endpoint ID
 
 # Check if running in browser (Pygbag/Emscripten)
 def is_browser():
@@ -18,78 +17,70 @@ def is_browser():
     return sys.platform == "emscripten"
 
 async def cloud_save(data):
-    """Save leaderboard data to cloud (JSONBin.io)."""
+    """Save leaderboard data to cloud (npoint.io)."""
     if not CLOUD_ENABLED:
         return False
     try:
-        url = f"https://api.jsonbin.io/v3/b/{JSONBIN_BIN_ID}"
-        headers = {
-            "Content-Type": "application/json",
-            "X-Master-Key": JSONBIN_API_KEY
-        }
+        url = f"https://api.npoint.io/{NPOINT_ID}"
         json_data = json.dumps(data)
 
         if is_browser() and hasattr(platform, 'window'):
             # Use JavaScript fetch in browser
             js_code = f'''
-                (async () => {{
-                    const response = await fetch("{url}", {{
-                        method: "PUT",
-                        headers: {{
-                            "Content-Type": "application/json",
-                            "X-Master-Key": "{JSONBIN_API_KEY}"
-                        }},
-                        body: JSON.stringify({json_data})
-                    }});
-                    return response.ok;
-                }})()
+                fetch("{url}", {{
+                    method: "POST",
+                    headers: {{ "Content-Type": "application/json" }},
+                    body: '{json_data.replace("'", "\\'")}'
+                }}).then(r => r.ok).catch(e => false)
             '''
-            result = platform.window.eval(js_code)
-            print(f"Cloud save result: {result}")
+            platform.window.eval(js_code)
+            print("Cloud save sent")
             return True
         else:
             # Use urllib for desktop
             import urllib.request
-            req = urllib.request.Request(url, data=json_data.encode('utf-8'), method='PUT')
+            req = urllib.request.Request(url, data=json_data.encode('utf-8'), method='POST')
             req.add_header('Content-Type', 'application/json')
-            req.add_header('X-Master-Key', JSONBIN_API_KEY)
-            with urllib.request.urlopen(req, timeout=5) as response:
+            with urllib.request.urlopen(req, timeout=10) as response:
                 return response.status == 200
     except Exception as e:
         print(f"Cloud save error: {e}")
     return False
 
 async def cloud_load():
-    """Load leaderboard data from cloud (JSONBin.io)."""
+    """Load leaderboard data from cloud (npoint.io)."""
     if not CLOUD_ENABLED:
         return None
     try:
-        url = f"https://api.jsonbin.io/v3/b/{JSONBIN_BIN_ID}/latest"
+        url = f"https://api.npoint.io/{NPOINT_ID}"
 
         if is_browser() and hasattr(platform, 'window'):
-            # Use JavaScript fetch in browser
+            # Use JavaScript fetch in browser - need to handle async properly
             js_code = f'''
-                (async () => {{
-                    const response = await fetch("{url}", {{
-                        headers: {{
-                            "X-Master-Key": "{JSONBIN_API_KEY}"
-                        }}
-                    }});
-                    const data = await response.json();
-                    return JSON.stringify(data.record || {{}});
+                (function() {{
+                    var result = null;
+                    var xhr = new XMLHttpRequest();
+                    xhr.open("GET", "{url}", false);
+                    xhr.send();
+                    if (xhr.status === 200) {{
+                        result = xhr.responseText;
+                    }}
+                    return result;
                 }})()
             '''
             result = platform.window.eval(js_code)
             if result:
-                return json.loads(result)
+                data = json.loads(result)
+                print(f"Cloud load: got {len(data)} users")
+                return data
         else:
             # Use urllib for desktop
             import urllib.request
             req = urllib.request.Request(url)
-            req.add_header('X-Master-Key', JSONBIN_API_KEY)
-            with urllib.request.urlopen(req, timeout=5) as response:
+            with urllib.request.urlopen(req, timeout=10) as response:
                 data = json.loads(response.read().decode('utf-8'))
-                return data.get('record', {})
+                print(f"Cloud load: got {len(data)} users")
+                return data
     except Exception as e:
         print(f"Cloud load error: {e}")
     return None
