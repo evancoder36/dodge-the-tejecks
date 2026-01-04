@@ -10,6 +10,8 @@ import platform
 # This enables live cross-device leaderboard!
 CLOUD_ENABLED = True
 JSONBLOB_ID = "019b8848-ceea-7fa2-a656-7c1db1bb9447"
+# CORS proxy for browser requests (needed because jsonblob doesn't support CORS)
+CORS_PROXY = "https://corsproxy.io/?"
 
 # Check if running in browser (Pygbag/Emscripten)
 def is_browser():
@@ -17,29 +19,40 @@ def is_browser():
     return sys.platform == "emscripten"
 
 async def cloud_save(data):
-    """Save leaderboard data to cloud (jsonblob.com)."""
+    """Save leaderboard data to cloud (jsonblob.com via CORS proxy)."""
     if not CLOUD_ENABLED:
         return False
     try:
-        url = f"https://jsonblob.com/api/jsonBlob/{JSONBLOB_ID}"
+        base_url = f"https://jsonblob.com/api/jsonBlob/{JSONBLOB_ID}"
         json_data = json.dumps(data)
 
-        if is_browser() and hasattr(platform, 'window'):
-            # Use JavaScript fetch in browser
+        if is_browser():
+            # Use CORS proxy for browser requests
+            import platform
+            proxy_url = CORS_PROXY + base_url
+            escaped_data = json_data.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "\\n").replace("\r", "")
             js_code = f'''
-                fetch("{url}", {{
-                    method: "PUT",
-                    headers: {{ "Content-Type": "application/json" }},
-                    body: '{json_data.replace("'", "\\'").replace(chr(10), "\\n")}'
-                }}).then(r => r.ok).catch(e => false)
+                (function() {{
+                    try {{
+                        var xhr = new XMLHttpRequest();
+                        xhr.open("PUT", "{proxy_url}", false);
+                        xhr.setRequestHeader("Content-Type", "application/json");
+                        xhr.send('{escaped_data}');
+                        console.log("Cloud save via proxy, status: " + xhr.status);
+                        return xhr.status === 200;
+                    }} catch(e) {{
+                        console.log("Cloud save error: " + e);
+                        return false;
+                    }}
+                }})()
             '''
-            platform.window.eval(js_code)
-            print("Cloud save sent to jsonblob")
-            return True
+            result = platform.window.eval(js_code)
+            print(f"Cloud save result: {result}")
+            return result
         else:
-            # Use urllib for desktop
+            # Use urllib for desktop (no proxy needed)
             import urllib.request
-            req = urllib.request.Request(url, data=json_data.encode('utf-8'), method='PUT')
+            req = urllib.request.Request(base_url, data=json_data.encode('utf-8'), method='PUT')
             req.add_header('Content-Type', 'application/json')
             with urllib.request.urlopen(req, timeout=10) as response:
                 return response.status == 200
@@ -48,25 +61,30 @@ async def cloud_save(data):
     return False
 
 async def cloud_load():
-    """Load leaderboard data from cloud (jsonblob.com)."""
+    """Load leaderboard data from cloud (jsonblob.com via CORS proxy)."""
     if not CLOUD_ENABLED:
         return None
     try:
-        url = f"https://jsonblob.com/api/jsonBlob/{JSONBLOB_ID}"
+        base_url = f"https://jsonblob.com/api/jsonBlob/{JSONBLOB_ID}"
 
-        if is_browser() and hasattr(platform, 'window'):
-            # Use JavaScript XHR for synchronous request in browser
+        if is_browser():
+            # Use CORS proxy for browser requests
+            import platform
+            proxy_url = CORS_PROXY + base_url
             js_code = f'''
                 (function() {{
-                    var result = null;
-                    var xhr = new XMLHttpRequest();
-                    xhr.open("GET", "{url}", false);
-                    xhr.setRequestHeader("Accept", "application/json");
-                    xhr.send();
-                    if (xhr.status === 200) {{
-                        result = xhr.responseText;
+                    try {{
+                        var xhr = new XMLHttpRequest();
+                        xhr.open("GET", "{proxy_url}", false);
+                        xhr.send();
+                        console.log("Cloud load via proxy, status: " + xhr.status);
+                        if (xhr.status === 200) {{
+                            return xhr.responseText;
+                        }}
+                    }} catch(e) {{
+                        console.log("Cloud load error: " + e);
                     }}
-                    return result;
+                    return null;
                 }})()
             '''
             result = platform.window.eval(js_code)
@@ -76,9 +94,9 @@ async def cloud_load():
                     print(f"Cloud load: got {len(data)} users")
                     return data
         else:
-            # Use urllib for desktop
+            # Use urllib for desktop (no proxy needed)
             import urllib.request
-            req = urllib.request.Request(url)
+            req = urllib.request.Request(base_url)
             req.add_header('Accept', 'application/json')
             with urllib.request.urlopen(req, timeout=10) as response:
                 data = json.loads(response.read().decode('utf-8'))
